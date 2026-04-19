@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include<algorithm>
+#include<sstream>
 
 using namespace std;
 
@@ -56,4 +57,24 @@ vector<Process> getProcesses() {
 
     closedir(dir);
     return processes;
+}
+
+long getProcessCPUTime(int pid){
+    string path = "/proc"+to_string(pid)+"/stat";
+    ifstream file(path);
+
+    if (!file.is_open()) return 0;
+
+    string line;
+    getline(file, line);
+
+    istringstream ss(line);
+
+    string temp;
+    long utime, stime;
+
+    for (int i = 0; i < 13; i++) ss >> temp;
+    
+    ss >> utime >> stime;
+    return utime + stime;
 }
