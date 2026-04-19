@@ -8,10 +8,11 @@
 using namespace std;
 
 bool isNumber(const string& s) {
+    if (s.empty()) return false;
     for (char c : s) {
         if (!isdigit(c)) return false;
     }
-    return !s.empty();
+    return true;
 }
 
 vector<Process> getProcesses() {
