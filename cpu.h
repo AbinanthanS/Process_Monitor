@@ -13,4 +13,4 @@ This struct can be used to calculate CPU usage by comparing the values at differ
 CPUStats readCPU();
 double calculateCPUUsage(const CPUStats& prev, const CPUStats& curr);
 
-#endif // CPU_H
+#endif 

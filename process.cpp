@@ -18,19 +18,20 @@ bool isNumber(const string& s) {
     }
     return true;
 }
+
 long getProcessCPUTime(int pid) {
-    std::string path = "/proc/" + std::to_string(pid) + "/stat";
-    std::ifstream file(path);
+    string path = "/proc/" + to_string(pid) + "/stat";
+    ifstream file(path);
 
     if (!file.is_open()) return 0;
 
-    std::string line;
-    std::getline(file, line);
+    string line;
+    getline(file, line);
 
-    std::istringstream ss(line);
+    istringstream ss(line);
 
-    std::string token;
-    std::vector<std::string> fields;
+    string token;
+    vector<std::string> fields;
 
     while (ss >> token) {
         fields.push_back(token);
@@ -38,11 +39,13 @@ long getProcessCPUTime(int pid) {
 
     if (fields.size() < 17) return 0;
 
-    long utime = std::stol(fields[13]);
-    long stime = std::stol(fields[14]);
+    long utime = stol(fields[13]);
+    long stime = stol(fields[14]);
 
     return utime + stime;
 }
+
+
 vector<Process> getProcesses() {
     vector<Process> processes;
 

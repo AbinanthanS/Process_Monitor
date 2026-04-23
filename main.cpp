@@ -35,7 +35,7 @@ int main(){
         long totalCurr = getTotalCPUTime(curr);
         long totalDelta = totalCurr - totalPrev;
 
-        std::cout << "TOTAL DELTA: " << totalDelta << std::endl;
+        
         int numCores = thread::hardware_concurrency();
 
         for (auto& p : processes) {
