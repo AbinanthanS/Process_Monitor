@@ -3,10 +3,13 @@
 #include <fstream>
 #include <string>
 #include <vector>
-#include<algorithm>
-#include<sstream>
+#include <algorithm>
+#include <sstream>
+#include <map>
 
 using namespace std;
+
+static map<int, long> prevProcessTimes;
 
 bool isNumber(const string& s) {
     if (s.empty()) return false;
@@ -15,7 +18,31 @@ bool isNumber(const string& s) {
     }
     return true;
 }
+long getProcessCPUTime(int pid) {
+    std::string path = "/proc/" + std::to_string(pid) + "/stat";
+    std::ifstream file(path);
 
+    if (!file.is_open()) return 0;
+
+    std::string line;
+    std::getline(file, line);
+
+    std::istringstream ss(line);
+
+    std::string token;
+    std::vector<std::string> fields;
+
+    while (ss >> token) {
+        fields.push_back(token);
+    }
+
+    if (fields.size() < 17) return 0;
+
+    long utime = std::stol(fields[13]);
+    long stime = std::stol(fields[14]);
+
+    return utime + stime;
+}
 vector<Process> getProcesses() {
     vector<Process> processes;
 
@@ -50,7 +77,24 @@ vector<Process> getProcesses() {
                     name = "[kernel_process]";
                 }
 
-                processes.push_back({pid, name});
+                 long currTime = getProcessCPUTime(pid);
+                 long prevTime = prevProcessTimes[pid];
+
+                 long delta = currTime - prevTime;
+
+                 Process proc;
+                 proc.pid = pid;
+                 proc.name = name;
+                 proc.prev_time = prevTime;
+                 proc.curr_time = currTime;
+
+                 // store for next iteration
+                 prevProcessTimes[pid] = currTime;
+
+                 // store delta (will normalize in main)
+                 proc.cpu_usage = delta;
+
+                 processes.push_back(proc);
             }
         }
     }
@@ -59,22 +103,3 @@ vector<Process> getProcesses() {
     return processes;
 }
 
-long getProcessCPUTime(int pid){
-    string path = "/proc"+to_string(pid)+"/stat";
-    ifstream file(path);
-
-    if (!file.is_open()) return 0;
-
-    string line;
-    getline(file, line);
-
-    istringstream ss(line);
-
-    string temp;
-    long utime, stime;
-
-    for (int i = 0; i < 13; i++) ss >> temp;
-    
-    ss >> utime >> stime;
-    return utime + stime;
-}
