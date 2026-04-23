@@ -1,4 +1,4 @@
-# ProcScope — Real-Time Linux Process Monitor (C++ | /proc)
+Linux Process Monitor (C++ | Linux/WSL2 | /proc)
 
 A real-time system monitor implemented in C++. It tracks CPU and memory usage by directly parsing the Linux `/proc` filesystem and provides a dynamic, top-like view of running processes with per-process CPU utilization.
 
