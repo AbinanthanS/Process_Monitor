@@ -1,6 +1,6 @@
 # ProcScope — Real-Time Linux Process Monitor (C++ | /proc)
 
-ProcScope is a lightweight, real-time system monitor implemented in C++. It tracks CPU and memory usage by directly parsing the Linux `/proc` filesystem and provides a dynamic, top-like view of running processes with per-process CPU utilization.
+A real-time system monitor implemented in C++. It tracks CPU and memory usage by directly parsing the Linux `/proc` filesystem and provides a dynamic, top-like view of running processes with per-process CPU utilization.
 
 ---
 
@@ -12,7 +12,6 @@ ProcScope is a lightweight, real-time system monitor implemented in C++. It trac
 - Per-process CPU usage calculation (time-delta based)
 - Dynamic sorting by CPU usage
 - Safe handling of short-lived processes
-- Compatible with Linux and WSL2
 
 ---
 
@@ -25,12 +24,8 @@ ProcScope is a lightweight, real-time system monitor implemented in C++. It trac
 
 - Systems Programming
 - File Parsing
-- Time-based Sampling
 - Process Management
 - CPU Scheduling Metrics
-
-
-
 
 ---
 
@@ -39,7 +34,7 @@ ProcScope is a lightweight, real-time system monitor implemented in C++. It trac
 ### CPU Usage
 
 - Reads `/proc/stat`
-- Computes CPU usage using the difference between consecutive samples
+- Computes CPU usage using the difference between consecutive samples `prev` and `curr`
 
 ### Memory Usage
 
