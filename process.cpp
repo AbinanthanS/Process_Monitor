@@ -73,7 +73,7 @@ vector<Process> getProcesses() {
             if (file.is_open()) {
                 getline(file, name);
 
-                // cmdline uses '\0' as separator → replace with space
+                // cmdline uses '\0' as separator and it is replaced with space
                 replace(name.begin(), name.end(), '\0', ' ');
 
                 if (name.empty()) {
