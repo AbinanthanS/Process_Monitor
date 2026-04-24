@@ -63,9 +63,9 @@ CPU% = (process_time_delta / total_cpu_time_delta) * number_of_cores * 100
 - g++ (C++17 or later)
 
 ### Compile
-g++ main.cpp cpu.cpp memory.cpp process.cpp -o monitor
+`g++ main.cpp cpu.cpp memory.cpp process.cpp -o monitor`
 
 ### Run
 
 
-./monitor
+`./monitor`
