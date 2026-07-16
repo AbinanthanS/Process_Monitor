@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <sstream>
 #include <map>
+#include <cctype>
+#include <cstdio>
 
 using namespace std;
 
@@ -31,7 +33,7 @@ long getProcessCPUTime(int pid) {
     istringstream ss(line);
 
     string token;
-    vector<std::string> fields;
+    vector<string> fields;
 
     while (ss >> token) {
         fields.push_back(token);
@@ -77,11 +79,20 @@ vector<Process> getProcesses() {
                 replace(name.begin(), name.end(), '\0', ' ');
 
                 if (name.empty()) {
-                    name = "[kernel_process]";
+                    ifstream comm("/proc/" + dirName + "/comm");
+                    getline(comm, name);
+
+                    if (name.empty())
+                        name = "[unknown]";
                 }
 
                  long currTime = getProcessCPUTime(pid);
                  long prevTime = prevProcessTimes[pid];
+
+                 if (prevTime == 0) {
+                    prevProcessTimes[pid] = currTime;
+                    continue;
+                }
 
                  long delta = currTime - prevTime;
 

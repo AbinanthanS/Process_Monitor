@@ -1,6 +1,7 @@
 #include "cpu.h"
 #include <fstream>
 #include <string>
+#include <stdexcept>
 
 using namespace std;
 
@@ -11,10 +12,21 @@ CPUStats readCPU(){
 
     CPUStats stats{};
 
-    if (file.is_open()){
-        file >> cpu >> stats.user >> stats.nice >> stats.system >> stats.idle 
-             >> stats.iowait >> stats.irq >> stats.softirq >> stats.steal;
+    if (!file.is_open()) {
+        throw runtime_error("Failed to open /proc/stat");
     }
+
+    CPUStats stats{};
+
+    file >> cpu
+        >> stats.user
+        >> stats.nice
+        >> stats.system
+        >> stats.idle
+        >> stats.iowait
+        >> stats.irq
+        >> stats.softirq
+        >> stats.steal;
 
     return stats;
 }

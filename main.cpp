@@ -23,7 +23,7 @@ int main(){
         double cpuUsage = calculateCPUUsage(prev, curr);
         double memUsage = getMemoryUsage();
 
-        system("clear");
+        cout << "\033[2J\033[H";
 
         cout<<"======System Monitor======\n";
         cout<<"CPU Usage : "<<cpuUsage<<" %\n";
@@ -40,7 +40,10 @@ int main(){
 
         for (auto& p : processes) {
             if (totalDelta > 0) {
+
                 p.cpu_usage = ((double)p.cpu_usage / totalDelta) * numCores * 100.0;
+                p.cpu_usage = min(p.cpu_usage, 100.0);
+
             } else {
                 p.cpu_usage = 0.0;
             }

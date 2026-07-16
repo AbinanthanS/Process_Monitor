@@ -1,8 +1,16 @@
 #ifndef CPU_H
 #define CPU_H
+#include <cstdint>
 
 struct CPUStats{
-    long user, nice, system, idle, iowait, irq, softirq, steal;
+    uint64_t user;
+    uint64_t nice;
+    uint64_t system;
+    uint64_t idle;
+    uint64_t iowait;
+    uint64_t irq;
+    uint64_t softirq;
+    uint64_t steal;
 };
 /*
 the above struct is used to store the raw CPU statistics read from /proc/stat. 
