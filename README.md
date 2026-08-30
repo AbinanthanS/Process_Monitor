@@ -1,71 +1,87 @@
-Linux Process Monitor (C++ | Linux/WSL2 | /proc)
+# ⚡ Interactive Linux Process Monitor (C++17 | `/proc` | Zero-Dependency TUI)
 
-A real-time system monitor implemented in C++. It tracks CPU and memory usage by directly parsing the Linux `/proc` filesystem and provides a dynamic, `top` like view of running processes with per-process CPU utilization.
-
----
-
-## Features
-
-- Real-time system CPU usage
-- Memory usage tracking
-- Process listing using `/proc/[pid]`
-- Per-process CPU usage calculation (time-delta based)
-- Dynamic sorting by CPU usage
-- Safe handling of short-lived processes
+A high-performance, real-time, interactive Terminal User Interface (TUI) system monitor built in modern C++17. Directly parses the Linux `/proc` filesystem and features a flicker-free double-buffered rendering engine with full keyboard navigation, dynamic sorting, live substring filtering, and process signal management (`SIGTERM`, `SIGKILL`, etc.).
 
 ---
 
-## Tech Stack
+## ✨ Features
 
-- Language: C++
-- OS Interface: Linux `/proc` filesystem
-
-### Concepts Used
-
-- Systems Programming
-- File Parsing
-- Process Management
-- CPU Scheduling Metrics
-
----
-
-## How It Works
-
-### CPU Usage
-
-- Reads `/proc/stat`
-- Computes CPU usage using the difference between consecutive samples `prev` and `curr`
-
-### Memory Usage
-
-- Parses `/proc/meminfo`
-- Calculates usage using `MemTotal` and `MemAvailable`
-
-### Process Monitoring
-
-- Iterates through `/proc/[pid]`
-- Extracts:
-  - Process ID (PID)
-  - Process name (from `/cmdline`)
-  - CPU time (`utime + stime` from `/stat`)
-
-### Per-Process CPU Usage
-CPU% = (process_time_delta / total_cpu_time_delta) * number_of_cores * 100
-
+- **🚀 Flicker-Free TUI Engine**: Custom double-buffered ANSI rendering utilizing the terminal alternate screen buffer (`\033[?1049h`). Clean exit restoration with zero artifacts.
+- **📊 Real-Time Multi-Core CPU Gauges**: Visual progress meters per CPU core with dynamic color thresholds (Green $\to$ Yellow $\to$ Red).
+- **💾 Memory & Swap Breakdown**: Live tracking of used, available, buffers, cached memory, and swap utilization.
+- **⚡ System Dashboard**: Real-time task counts (*Total*, *Running*, *Sleeping*, *Zombie*), load averages (*1m*, *5m*, *15m*), and formatted uptime.
+- **🔍 Live Substring Search & Filter**: Press `/` or `F3` to filter processes on-the-fly by command name, arguments, username, or PID.
+- **🔄 Dynamic Sorting Modes**: Sort by `CPU%`, `MEM%`, `PID`, `USER`, `TIME+`, `NAME`, `VIRT`, or `RES`. Toggle ascending/descending with `r`.
+- **🎯 Process Signal Management**: Send signals (`SIGTERM`, `SIGKILL`, `SIGHUP`, `SIGSTOP`, `SIGCONT`) directly to the selected process via `F9` / `k`.
+- **🧵 Multi-Threaded Architecture**: Dedicated background collector thread coupled with a responsive, low-latency UI loop.
+- **📦 Zero External Dependencies**: Written in pure C++17 and native POSIX system APIs (`termios`, `sys/ioctl.h`).
 
 ---
 
-## Build and Run
+## ⌨️ Keyboard Shortcuts
+
+| Key | Action |
+|---|---|
+| `↑` / `↓` or `k` / `j` | Navigate process rows |
+| `PgUp` / `PgDn` | Scroll by 15 processes |
+| `Home` / `End` or `g` / `G` | Jump to top / bottom of process list |
+| `/` or `F3` | Open live search / filter bar (`Enter`/`Esc` to close) |
+| `c` | Sort by **CPU%** |
+| `m` | Sort by **Memory%** |
+| `p` | Sort by **PID** |
+| `t` | Sort by **Total CPU Time** (`TIME+`) |
+| `u` | Sort by **Username** |
+| `n` | Sort by **Command Name** |
+| `r` or `I` | Toggle sort order (**Ascending** / **Descending**) |
+| `F6` | Open interactive **Sort Selection** popup |
+| `F9` or `k` | Open **Send Signal** popup (`SIGTERM`, `SIGKILL`, etc.) |
+| `Space` | **Pause / Resume** live monitoring |
+| `F1` or `?` | Open **Help** modal |
+| `q` or `F10` | Quit application |
+
+---
+
+## 🛠️ Build and Run
 
 ### Prerequisites
-
-- Linux or WSL2
-- g++ (C++17 or later)
+- Linux or WSL2 (Windows Subsystem for Linux)
+- `g++` (C++17 or later)
 
 ### Compile
-`g++ main.cpp cpu.cpp memory.cpp process.cpp -o monitor`
+```bash
+./build.sh
+```
+*Or manually:*
+```bash
+g++ -std=c++17 -Wall -Wextra -O2 -pthread terminal.cpp render_buffer.cpp cpu.cpp memory.cpp process.cpp app.cpp main.cpp -o monitor
+```
 
 ### Run
+```bash
+./monitor
+```
 
+---
 
-`./monitor`
+## 🏗️ Architecture
+
+```
+┌────────────────────────────────────────────────────────┐
+│                   Main Event Loop (UI)                 │
+│  - POSIX Raw Terminal Input & Escape Sequence Parsing   │
+│  - Double-Buffered Screen Cell Assembly & ANSI Styling │
+│  - Interactive State (Selection, Scroll, Filter, Sort) │
+└───────────────────────────▲────────────────────────────┘
+                            │ Thread-Safe Mutex Lock
+┌───────────────────────────┴────────────────────────────┐
+│              Background Metric Collector Thread        │
+│  - /proc/stat       (Total & Per-Core CPU Times)       │
+│  - /proc/meminfo    (Total, Avail, Buffers, Cached)    │
+│  - /proc/loadavg    (1m, 5m, 15m Load Averages)        │
+│  - /proc/uptime     (System Uptime)                    │
+│  - /proc/[pid]/stat (State, Priority, Nice, UTime, RSS)│
+│  - /proc/[pid]/statm(VIRT, RES, SHR Memory Pages)      │
+│  - /proc/[pid]/status & /etc/passwd (UID -> Username)  │
+│  - /proc/[pid]/cmdline (Full Command Arguments)        │
+└────────────────────────────────────────────────────────┘
+```
