@@ -2,11 +2,19 @@
 #define TERMINAL_H
 
 #include <string>
+#include <csignal>
+#include <atomic>
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
-#include <csignal>
-#include <atomic>
+#endif
 
 enum class KeyCode {
     NONE = 0,
@@ -59,7 +67,12 @@ private:
     Terminal(const Terminal&) = delete;
     Terminal& operator=(const Terminal&) = delete;
 
+#if defined(_WIN32)
+    DWORD origInMode = 0;
+    DWORD origOutMode = 0;
+#else
     termios orig_termios{};
+#endif
     bool rawModeActive = false;
     static std::atomic<bool> resizedFlag;
     static std::atomic<bool> exitRequested;

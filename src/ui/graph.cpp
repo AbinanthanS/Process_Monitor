@@ -1,4 +1,5 @@
-#include "graph.h"
+#include "ui/graph.h"
+#include "ui/render_buffer.h"
 #include <algorithm>
 #include <numeric>
 #include <cmath>
@@ -28,6 +29,16 @@ double SparklineGraph::getAverage() const {
     return sum / history.size();
 }
 
+double SparklineGraph::getMax() const {
+    if (history.empty()) return 0.0;
+    return *max_element(history.begin(), history.end());
+}
+
+double SparklineGraph::getMin() const {
+    if (history.empty()) return 0.0;
+    return *min_element(history.begin(), history.end());
+}
+
 string SparklineGraph::getBrailleChar(int leftDotHeight, int rightDotHeight) {
     leftDotHeight = clamp(leftDotHeight, 0, 4);
     rightDotHeight = clamp(rightDotHeight, 0, 4);
@@ -38,7 +49,6 @@ string SparklineGraph::getBrailleChar(int leftDotHeight, int rightDotHeight) {
     uint8_t byteOffset = leftMasks[leftDotHeight] | rightMasks[rightDotHeight];
     uint32_t codepoint = 0x2800 + byteOffset;
 
-    // Encode to UTF-8
     string utf8;
     utf8.push_back(static_cast<char>(0xE0 | ((codepoint >> 12) & 0x0F)));
     utf8.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
@@ -48,7 +58,7 @@ string SparklineGraph::getBrailleChar(int leftDotHeight, int rightDotHeight) {
 
 string SparklineGraph::renderBrailleLine(size_t width, double minVal, double maxVal, const string& color) const {
     if (width == 0) return "";
-    size_t samplesNeeded = width * 2; // Each Braille char represents 2 columns
+    size_t samplesNeeded = width * 2;
 
     vector<double> samples(samplesNeeded, minVal);
     if (!history.empty()) {
@@ -74,11 +84,12 @@ string SparklineGraph::renderBrailleLine(size_t width, double minVal, double max
         line += getBrailleChar(leftH, rightH);
     }
 
-    if (!color.empty()) line += "\033[0m";
+    if (!color.empty()) line += Color::RESET;
     return line;
 }
 
-vector<string> SparklineGraph::renderBrailleMatrix(size_t height, size_t width, double minVal, double maxVal, const string& color) const {
+vector<string> SparklineGraph::renderBrailleMatrix(size_t height, size_t width, double minVal, double maxVal,
+                                                   const string& startColor, const string& endColor) const {
     vector<string> lines(height);
     if (height == 0 || width == 0) return lines;
 
@@ -97,7 +108,13 @@ vector<string> SparklineGraph::renderBrailleMatrix(size_t height, size_t width, 
 
     for (size_t r = 0; r < height; ++r) {
         string line;
-        if (!color.empty()) line += color;
+        string lineCol = startColor;
+        if (!startColor.empty() && !endColor.empty()) {
+            double factor = (height > 1) ? static_cast<double>(r) / (height - 1) : 0.0;
+            lineCol = Color::gradient(255, 60, 60, 60, 220, 255, 1.0 - factor);
+        }
+
+        if (!lineCol.empty()) line += lineCol;
 
         int rowBottomDot = static_cast<int>((height - 1 - r) * 4);
 
@@ -114,7 +131,7 @@ vector<string> SparklineGraph::renderBrailleMatrix(size_t height, size_t width, 
             line += getBrailleChar(leftDotH, rightDotH);
         }
 
-        if (!color.empty()) line += "\033[0m";
+        if (!lineCol.empty()) line += Color::RESET;
         lines[r] = line;
     }
 

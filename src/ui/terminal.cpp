@@ -1,9 +1,14 @@
-#include "terminal.h"
+#include "ui/terminal.h"
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
+
+#if defined(_WIN32)
+#include <conio.h>
+#else
 #include <sys/select.h>
 #include <unistd.h>
+#endif
 
 std::atomic<bool> Terminal::resizedFlag{false};
 std::atomic<bool> Terminal::exitRequested{false};
@@ -36,6 +41,114 @@ bool Terminal::wasResized() {
 void Terminal::clearResized() {
     resizedFlag.store(false);
 }
+
+#if defined(_WIN32)
+
+static BOOL WINAPI consoleCtrlHandler(DWORD ctrlType) {
+    if (ctrlType == CTRL_C_EVENT || ctrlType == CTRL_CLOSE_EVENT) {
+        Terminal::handleSignal(0);
+        return TRUE;
+    }
+    return FALSE;
+}
+
+bool Terminal::init() {
+    if (rawModeActive) return true;
+
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
+    if (hOut == INVALID_HANDLE_VALUE || hIn == INVALID_HANDLE_VALUE) return false;
+
+    GetConsoleMode(hIn, &origInMode);
+    GetConsoleMode(hOut, &origOutMode);
+
+    DWORD outMode = origOutMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING | ENABLE_PROCESSED_OUTPUT;
+    SetConsoleMode(hOut, outMode);
+
+    DWORD inMode = origInMode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT);
+    inMode |= ENABLE_VIRTUAL_TERMINAL_INPUT;
+    SetConsoleMode(hIn, inMode);
+
+    SetConsoleCtrlHandler(consoleCtrlHandler, TRUE);
+
+    rawModeActive = true;
+    std::cout << "\033[?1049h\033[?25l" << std::flush;
+    return true;
+}
+
+void Terminal::cleanup() {
+    if (rawModeActive) {
+        std::cout << "\033[?25h\033[?1049l" << std::flush;
+        HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
+        SetConsoleMode(hIn, origInMode);
+        SetConsoleMode(hOut, origOutMode);
+        rawModeActive = false;
+    }
+}
+
+TermSize Terminal::getSize() const {
+    TermSize ts{24, 80};
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (GetConsoleScreenBufferInfo(hOut, &csbi)) {
+        ts.cols = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+        ts.rows = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+    }
+    return ts;
+}
+
+KeyEvent Terminal::readKey(int timeoutMs) {
+    KeyEvent evt{KeyCode::NONE, 0};
+    int waited = 0;
+    while (!_kbhit() && waited < timeoutMs) {
+        Sleep(10);
+        waited += 10;
+    }
+
+    if (!_kbhit()) return evt;
+
+    int c = _getch();
+    if (c == 0 || c == 224) {
+        int code2 = _getch();
+        switch (code2) {
+            case 72: evt.code = KeyCode::UP; break;
+            case 80: evt.code = KeyCode::DOWN; break;
+            case 75: evt.code = KeyCode::LEFT; break;
+            case 77: evt.code = KeyCode::RIGHT; break;
+            case 73: evt.code = KeyCode::PAGE_UP; break;
+            case 81: evt.code = KeyCode::PAGE_DOWN; break;
+            case 71: evt.code = KeyCode::HOME; break;
+            case 79: evt.code = KeyCode::END; break;
+            case 83: evt.code = KeyCode::DELETE_KEY; break;
+            case 59: evt.code = KeyCode::F1; break;
+            case 60: evt.code = KeyCode::F2; break;
+            case 61: evt.code = KeyCode::F3; break;
+            case 62: evt.code = KeyCode::F4; break;
+            case 63: evt.code = KeyCode::F5; break;
+            case 64: evt.code = KeyCode::F6; break;
+            case 65: evt.code = KeyCode::F7; break;
+            case 66: evt.code = KeyCode::F8; break;
+            case 67: evt.code = KeyCode::F9; break;
+            case 68: evt.code = KeyCode::F10; break;
+            default: break;
+        }
+        return evt;
+    }
+
+    if (c == 13) evt.code = KeyCode::ENTER;
+    else if (c == 8) evt.code = KeyCode::BACKSPACE;
+    else if (c == 9) evt.code = KeyCode::TAB;
+    else if (c == 27) evt.code = KeyCode::ESCAPE;
+    else {
+        evt.code = KeyCode::CHAR;
+        evt.ch = static_cast<char>(c);
+    }
+
+    return evt;
+}
+
+#else
 
 bool Terminal::init() {
     if (rawModeActive) return true;
@@ -197,3 +310,5 @@ KeyEvent Terminal::readKey(int timeoutMs) {
 
     return evt;
 }
+
+#endif

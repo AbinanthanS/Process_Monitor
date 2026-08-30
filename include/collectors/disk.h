@@ -14,8 +14,19 @@ struct DiskStats {
     uint64_t totalWriteBytes = 0;
 };
 
+struct MountInfo {
+    std::string mountPoint;
+    std::string device;
+    std::string fsType;
+    uint64_t totalBytes = 0;
+    uint64_t usedBytes = 0;
+    uint64_t freeBytes = 0;
+    double usedPercent = 0.0;
+};
+
 struct SystemDiskInfo {
     std::vector<DiskStats> disks;
+    std::vector<MountInfo> mounts;
     uint64_t totalReadBytesSec = 0;
     uint64_t totalWriteBytesSec = 0;
     uint64_t totalIopsSec = 0;

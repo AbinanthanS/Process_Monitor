@@ -8,6 +8,7 @@
 struct Process {
     int pid = 0;
     int ppid = 0;
+    int threads = 1;
     std::string user = "root";
     int priority = 20;
     int nice = 0;

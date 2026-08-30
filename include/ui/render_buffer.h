@@ -5,6 +5,19 @@
 #include <vector>
 #include <cstdint>
 
+struct Rect {
+    int y = 1; // 1-indexed row
+    int x = 1; // 1-indexed column
+    int h = 0; // height
+    int w = 0; // width
+
+    bool isValid() const { return h > 1 && w > 2; }
+    int innerY() const { return y + 1; }
+    int innerX() const { return x + 1; }
+    int innerH() const { return h > 2 ? h - 2 : 0; }
+    int innerW() const { return w > 2 ? w - 2 : 0; }
+};
+
 namespace Color {
     const std::string RESET       = "\033[0m";
     const std::string BOLD        = "\033[1m";
@@ -46,6 +59,9 @@ namespace Color {
 
     // 24-bit TrueColor generator
     std::string rgb(uint8_t r, uint8_t g, uint8_t b, bool background = false);
+    std::string gradient(uint8_t r1, uint8_t g1, uint8_t b1,
+                         uint8_t r2, uint8_t g2, uint8_t b2,
+                         double factor, bool background = false);
 }
 
 class RenderBuffer {
@@ -56,14 +72,33 @@ public:
     void clear();
 
     void writeText(int row, int col, const std::string& text, const std::string& style = "");
+    void writeTextClipped(int row, int col, int maxLen, const std::string& text, const std::string& style = "");
     void fillRow(int row, char ch = ' ', const std::string& style = "");
+    void fillRect(const Rect& rect, char ch = ' ', const std::string& style = "");
+
     void drawProgressBar(int row, int col, int totalWidth, double percentage, 
                          const std::string& label = "", 
                          const std::string& highColor = Color::FG_BRIGHT_RED,
                          const std::string& midColor = Color::FG_BRIGHT_YELLOW,
                          const std::string& lowColor = Color::FG_BRIGHT_GREEN);
 
+    void drawGradientBar(int row, int col, int totalWidth, double percentage,
+                         const std::string& label = "",
+                         const std::string& valueSuffix = "%",
+                         uint8_t r1 = 0, uint8_t g1 = 200, uint8_t b1 = 255,
+                         uint8_t r2 = 255, uint8_t g2 = 60, uint8_t b2 = 120);
+
     void drawBox(int row, int col, int height, int width, const std::string& title = "", const std::string& style = "");
+    void drawRoundedBox(int row, int col, int height, int width,
+                        const std::string& title = "",
+                        const std::string& badge = "",
+                        const std::string& borderStyle = Color::FG_BRIGHT_BLACK,
+                        const std::string& titleStyle = Color::BOLD + Color::FG_BRIGHT_CYAN);
+    void drawRoundedBox(const Rect& rect,
+                        const std::string& title = "",
+                        const std::string& badge = "",
+                        const std::string& borderStyle = Color::FG_BRIGHT_BLACK,
+                        const std::string& titleStyle = Color::BOLD + Color::FG_BRIGHT_CYAN);
 
     void flush();
 

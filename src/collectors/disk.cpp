@@ -1,8 +1,13 @@
-#include "disk.h"
+#include "collectors/disk.h"
 #include <fstream>
 #include <sstream>
 #include <unordered_map>
+#include <unordered_set>
 #include <algorithm>
+
+#if defined(__unix__) || defined(__linux__)
+#include <sys/statvfs.h>
+#endif
 
 using namespace std;
 
@@ -19,13 +24,88 @@ static bool isPhysicalDisk(const string& name) {
     if (name.rfind("loop", 0) == 0 || name.rfind("ram", 0) == 0 || name.rfind("zram", 0) == 0) {
         return false;
     }
-    // Filter out partitions if whole disk is present (e.g. sda1 vs sda), or keep main active drives
     return true;
+}
+
+static vector<MountInfo> readMountedFileSystems() {
+    vector<MountInfo> mounts;
+    unordered_set<string> seenMounts;
+
+    ifstream file("/proc/mounts");
+    if (!file.is_open()) {
+        file.open("/etc/mtab");
+    }
+
+    if (!file.is_open()) {
+        return mounts;
+    }
+
+    string line;
+    while (getline(file, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        istringstream ss(line);
+        string dev, mountPoint, fsType, options;
+        if (!(ss >> dev >> mountPoint >> fsType >> options)) continue;
+
+        if (fsType == "proc" || fsType == "sysfs" || fsType == "cgroup" ||
+            fsType == "cgroup2" || fsType == "pstore" || fsType == "bpf" ||
+            fsType == "securityfs" || fsType == "configfs" || fsType == "debugfs" ||
+            fsType == "tracefs" || fsType == "fusectl" || fsType == "hugetlbfs" ||
+            fsType == "mqueue" || fsType == "devpts" || fsType == "autofs" ||
+            fsType == "binfmt_misc" || fsType == "rpc_pipefs" || fsType == "nsfs") {
+            continue;
+        }
+
+        if (seenMounts.count(mountPoint)) continue;
+
+        if (dev.rfind("/dev/", 0) != 0 && fsType != "zfs" && fsType != "btrfs" && fsType != "nfs" && fsType != "cifs" && fsType != "fuse.sshfs") {
+            if (mountPoint != "/" && mountPoint != "/home") {
+                continue;
+            }
+        }
+
+        if (mountPoint.rfind("/var/lib/docker", 0) == 0 || mountPoint.rfind("/snap", 0) == 0) {
+            continue;
+        }
+
+#if defined(__unix__) || defined(__linux__)
+        struct statvfs vfs{};
+        if (statvfs(mountPoint.c_str(), &vfs) == 0 && vfs.f_blocks > 0) {
+            uint64_t frsize = vfs.f_frsize > 0 ? vfs.f_frsize : vfs.f_bsize;
+            uint64_t total = vfs.f_blocks * frsize;
+            uint64_t free = vfs.f_bavail * frsize;
+            uint64_t used = (vfs.f_blocks >= vfs.f_bfree) ? (vfs.f_blocks - vfs.f_bfree) * frsize : (total - free);
+            double pct = total > 0 ? (static_cast<double>(used) / total) * 100.0 : 0.0;
+
+            MountInfo mi;
+            mi.mountPoint = mountPoint;
+            mi.device = dev;
+            mi.fsType = fsType;
+            mi.totalBytes = total;
+            mi.usedBytes = used;
+            mi.freeBytes = free;
+            mi.usedPercent = pct;
+
+            mounts.push_back(mi);
+            seenMounts.insert(mountPoint);
+        }
+#endif
+    }
+
+    sort(mounts.begin(), mounts.end(), [](const MountInfo& a, const MountInfo& b) {
+        if (a.mountPoint == "/") return true;
+        if (b.mountPoint == "/") return false;
+        return a.mountPoint < b.mountPoint;
+    });
+
+    return mounts;
 }
 
 SystemDiskInfo readDiskStats(double deltaSeconds) {
     SystemDiskInfo info{};
     if (deltaSeconds <= 0.0) deltaSeconds = 1.0;
+
+    info.mounts = readMountedFileSystems();
 
     ifstream file("/proc/diskstats");
     if (!file.is_open()) return info;
@@ -42,7 +122,6 @@ SystemDiskInfo readDiskStats(double deltaSeconds) {
                >> writes >> writesMerged >> sectorsWritten >> writeMs) {
             
             if (!isPhysicalDisk(devName)) continue;
-            // Focus on root devices or primary partitions
             if (sectorsRead == 0 && sectorsWritten == 0) continue;
 
             uint64_t totalReadB = sectorsRead * 512ULL;

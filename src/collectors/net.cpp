@@ -1,7 +1,8 @@
-#include "net.h"
+#include "collectors/net.h"
 #include <fstream>
 #include <sstream>
 #include <unordered_map>
+#include <algorithm>
 
 using namespace std;
 
@@ -22,7 +23,6 @@ SystemNetInfo readNetStats(double deltaSeconds) {
     if (!file.is_open()) return info;
 
     string line;
-    // Skip 2 header lines
     getline(file, line);
     getline(file, line);
 
@@ -31,7 +31,6 @@ SystemNetInfo readNetStats(double deltaSeconds) {
         if (colonPos == string::npos) continue;
 
         string ifaceName = line.substr(0, colonPos);
-        // Trim spaces
         while (!ifaceName.empty() && isspace(ifaceName.front())) ifaceName.erase(0, 1);
         while (!ifaceName.empty() && isspace(ifaceName.back())) ifaceName.pop_back();
 
@@ -43,9 +42,6 @@ SystemNetInfo readNetStats(double deltaSeconds) {
 
         if (ss >> rxBytes >> rxPackets >> rxErrs >> rxDrop >> rxFifo >> rxFrame >> rxComp >> rxMcast
                >> txBytes >> txPackets >> txErrs >> txDrop >> txFifo >> txColls >> txCarrier >> txComp) {
-
-            // Skip loopback or inactive interfaces if desired, but keep if active
-            if (ifaceName == "lo" && rxBytes == 0 && txBytes == 0) continue;
 
             InterfaceStats istat;
             istat.name = ifaceName;
@@ -75,6 +71,12 @@ SystemNetInfo readNetStats(double deltaSeconds) {
             info.interfaces.push_back(istat);
         }
     }
+
+    sort(info.interfaces.begin(), info.interfaces.end(), [](const InterfaceStats& a, const InterfaceStats& b) {
+        if (a.name == "lo") return false;
+        if (b.name == "lo") return true;
+        return a.name < b.name;
+    });
 
     return info;
 }

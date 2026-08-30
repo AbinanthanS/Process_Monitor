@@ -4,7 +4,7 @@
 #include <string>
 
 struct SensorInfo {
-    double cpuTempC = -1.0; // In degrees Celsius, or -1.0 if unavailable
+    double cpuTempC = -1.0;
     bool isAvailable = false;
     std::string label;
 };

@@ -1,4 +1,6 @@
 *.exe
 *.o
+src/*.o
 monitor
-.vscode
+.vscode/
+build/
