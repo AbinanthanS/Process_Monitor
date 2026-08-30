@@ -32,12 +32,28 @@ enum class KeyCode {
     HOME,
     END,
     DELETE_KEY,
+    MOUSE_EVT,
     F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12
+};
+
+enum class MouseAction {
+    NONE = 0,
+    LEFT_CLICK,
+    RIGHT_CLICK,
+    SCROLL_UP,
+    SCROLL_DOWN
+};
+
+struct MouseEvent {
+    MouseAction action = MouseAction::NONE;
+    int x = 0; // 1-indexed column
+    int y = 0; // 1-indexed row
 };
 
 struct KeyEvent {
     KeyCode code = KeyCode::NONE;
     char ch = 0;
+    MouseEvent mouse;
 };
 
 struct TermSize {

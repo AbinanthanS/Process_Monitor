@@ -15,9 +15,10 @@ public:
     // Renders a single-line Braille sparkline graph of given visual column width
     std::string renderBrailleLine(size_t width, double minVal = 0.0, double maxVal = 100.0, const std::string& color = "") const;
 
-    // Renders a multi-line Braille graph (height rows x width columns) with optional gradient
+    // Renders a multi-line Braille graph (height rows x width columns) with optional gradient and filled area
     std::vector<std::string> renderBrailleMatrix(size_t height, size_t width, double minVal = 0.0, double maxVal = 100.0,
-                                                 const std::string& startColor = "", const std::string& endColor = "") const;
+                                                 const std::string& startColor = "", const std::string& endColor = "",
+                                                 bool fillArea = true) const;
 
     const std::deque<double>& getHistory() const { return history; }
     double getLatest() const { return history.empty() ? 0.0 : history.back(); }
@@ -26,7 +27,7 @@ public:
     double getMin() const;
 
     // Generates a UTF-8 Braille character for 2 columns with dot heights 0..4
-    static std::string getBrailleChar(int leftDotHeight, int rightDotHeight);
+    static std::string getBrailleChar(int leftDotHeight, int rightDotHeight, bool filled = false);
 
 private:
     size_t maxCapacity;

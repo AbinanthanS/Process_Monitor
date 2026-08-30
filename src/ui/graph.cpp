@@ -39,7 +39,7 @@ double SparklineGraph::getMin() const {
     return *min_element(history.begin(), history.end());
 }
 
-string SparklineGraph::getBrailleChar(int leftDotHeight, int rightDotHeight) {
+string SparklineGraph::getBrailleChar(int leftDotHeight, int rightDotHeight, bool /*filled*/) {
     leftDotHeight = clamp(leftDotHeight, 0, 4);
     rightDotHeight = clamp(rightDotHeight, 0, 4);
 
@@ -89,7 +89,8 @@ string SparklineGraph::renderBrailleLine(size_t width, double minVal, double max
 }
 
 vector<string> SparklineGraph::renderBrailleMatrix(size_t height, size_t width, double minVal, double maxVal,
-                                                   const string& startColor, const string& endColor) const {
+                                                   const string& startColor, const string& endColor,
+                                                   bool fillArea) const {
     vector<string> lines(height);
     if (height == 0 || width == 0) return lines;
 
@@ -125,10 +126,23 @@ vector<string> SparklineGraph::renderBrailleMatrix(size_t height, size_t width, 
             int leftTotalH = static_cast<int>(round(((leftVal - minVal) / range) * totalDotsY));
             int rightTotalH = static_cast<int>(round(((rightVal - minVal) / range) * totalDotsY));
 
-            int leftDotH = clamp(leftTotalH - rowBottomDot, 0, 4);
-            int rightDotH = clamp(rightTotalH - rowBottomDot, 0, 4);
+            int leftDotH = 0;
+            int rightDotH = 0;
 
-            line += getBrailleChar(leftDotH, rightDotH);
+            if (fillArea) {
+                if (leftTotalH >= rowBottomDot + 4) leftDotH = 4;
+                else if (leftTotalH <= rowBottomDot) leftDotH = 0;
+                else leftDotH = leftTotalH - rowBottomDot;
+
+                if (rightTotalH >= rowBottomDot + 4) rightDotH = 4;
+                else if (rightTotalH <= rowBottomDot) rightDotH = 0;
+                else rightDotH = rightTotalH - rowBottomDot;
+            } else {
+                leftDotH = clamp(leftTotalH - rowBottomDot, 0, 4);
+                rightDotH = clamp(rightTotalH - rowBottomDot, 0, 4);
+            }
+
+            line += getBrailleChar(leftDotH, rightDotH, fillArea);
         }
 
         if (!lineCol.empty()) line += Color::RESET;

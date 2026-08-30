@@ -83,23 +83,23 @@ void App::applyPreset(LayoutPreset preset) {
     switch (preset) {
         case LayoutPreset::FULL:
             modules = {true, true, true, true, true};
-            setStatus("Layout Preset: FULL (All Modules Active)", 2);
+            setStatus("Preset: FULL (All Modules Active)", 2);
             break;
         case LayoutPreset::RESOURCES:
             modules = {true, true, true, true, false};
-            setStatus("Layout Preset: RESOURCES (Graphs & Hardware Focus)", 2);
+            setStatus("Preset: RESOURCES (Hardware Focus)", 2);
             break;
         case LayoutPreset::PROCESSES:
             modules = {false, false, false, false, true};
-            setStatus("Layout Preset: PROCESSES (Fullscreen Table)", 2);
+            setStatus("Preset: PROCESSES (Fullscreen Table)", 2);
             break;
         case LayoutPreset::IO_FOCUS:
             modules = {false, false, true, true, true};
-            setStatus("Layout Preset: I/O FOCUS (Disk, Network & Procs)", 2);
+            setStatus("Preset: I/O FOCUS (Disk, Net & Procs)", 2);
             break;
         case LayoutPreset::MINIMAL:
             modules = {true, true, false, false, false};
-            setStatus("Layout Preset: MINIMAL (CPU & Memory Only)", 2);
+            setStatus("Preset: MINIMAL (CPU & Memory Only)", 2);
             break;
         default:
             break;
@@ -111,7 +111,7 @@ void App::cycleSelectedInterface(int direction) {
     if (appData.netInfo.interfaces.empty()) return;
     int n = static_cast<int>(appData.netInfo.interfaces.size());
     selectedNetInterfaceIdx = (selectedNetInterfaceIdx + direction + n) % n;
-    setStatus("Net Interface: " + appData.netInfo.interfaces[selectedNetInterfaceIdx].name, 2);
+    setStatus("Interface: " + appData.netInfo.interfaces[selectedNetInterfaceIdx].name, 2);
 }
 
 void App::collectorLoop() {
@@ -190,12 +190,8 @@ void App::run() {
 }
 
 void App::sendSignalToSelected(int signalNum) {
-    lock_guard<mutex> lock(dataMutex);
-    vector<Process> procs;
-    applySortAndFilter(appData.snapshot.processes, procs);
-
-    if (selectedIndex >= 0 && selectedIndex < static_cast<int>(procs.size())) {
-        int targetPid = procs[selectedIndex].pid;
+    if (selectedIndex >= 0 && selectedIndex < static_cast<int>(lastRenderedProcs.size())) {
+        int targetPid = lastRenderedProcs[selectedIndex].pid;
         if (sendProcessSignal(targetPid, signalNum) == 0) {
             setStatus("Signal " + to_string(signalNum) + " sent to PID " + to_string(targetPid), 3);
         } else {
@@ -204,7 +200,68 @@ void App::sendSignalToSelected(int signalNum) {
     }
 }
 
+void App::handleMouse(const MouseEvent& mouse) {
+    if (mouse.action == MouseAction::SCROLL_UP) {
+        selectedIndex = max(0, selectedIndex - 3);
+        return;
+    }
+    if (mouse.action == MouseAction::SCROLL_DOWN) {
+        selectedIndex += 3;
+        return;
+    }
+
+    if (mouse.action == MouseAction::LEFT_CLICK) {
+        // Check top bar clicks for module toggles
+        if (mouse.y == 1) {
+            if (mouse.x >= 7 && mouse.x <= 16) {
+                modules.cpu = !modules.cpu;
+                setStatus(string("CPU Module ") + (modules.cpu ? "Enabled" : "Disabled"), 2);
+            } else if (mouse.x >= 17 && mouse.x <= 26) {
+                modules.mem = !modules.mem;
+                setStatus(string("Memory Module ") + (modules.mem ? "Enabled" : "Disabled"), 2);
+            } else if (mouse.x >= 27 && mouse.x <= 37) {
+                modules.disk = !modules.disk;
+                setStatus(string("Disk Module ") + (modules.disk ? "Enabled" : "Disabled"), 2);
+            } else if (mouse.x >= 38 && mouse.x <= 47) {
+                modules.net = !modules.net;
+                setStatus(string("Network Module ") + (modules.net ? "Enabled" : "Disabled"), 2);
+            } else if (mouse.x >= 48 && mouse.x <= 58) {
+                modules.proc = !modules.proc;
+                setStatus(string("Process Module ") + (modules.proc ? "Enabled" : "Disabled"), 2);
+            }
+            return;
+        }
+
+        // Check proc panel click
+        if (currentLayout.proc.isValid()) {
+            int innerY = currentLayout.proc.innerY();
+            int innerX = currentLayout.proc.innerX();
+            int innerH = currentLayout.proc.innerH();
+            int innerW = currentLayout.proc.innerW();
+
+            if (mouse.x >= innerX && mouse.x < innerX + innerW &&
+                mouse.y > innerY && mouse.y < innerY + innerH) {
+                int clickedRow = mouse.y - innerY - 1; // Row relative to table start
+                int targetIdx = scrollOffset + clickedRow;
+                if (targetIdx >= 0 && targetIdx < static_cast<int>(lastRenderedProcs.size())) {
+                    if (selectedIndex == targetIdx) {
+                        // Double click / re-click opens Inspector
+                        activeModal = ModalType::INSPECTOR;
+                    } else {
+                        selectedIndex = targetIdx;
+                    }
+                }
+            }
+        }
+    }
+}
+
 void App::processInput(const KeyEvent& evt) {
+    if (evt.code == KeyCode::MOUSE_EVT) {
+        handleMouse(evt.mouse);
+        return;
+    }
+
     if (searchMode) {
         if (evt.code == KeyCode::ESCAPE) {
             searchMode = false;
@@ -231,6 +288,38 @@ void App::processInput(const KeyEvent& evt) {
         if (evt.code == KeyCode::ESCAPE || (evt.code == KeyCode::CHAR && evt.ch == 'q')) {
             activeModal = ModalType::NONE;
             modalSelectedIndex = 0;
+            return;
+        }
+
+        if (activeModal == ModalType::INSPECTOR) {
+            if (evt.code == KeyCode::ENTER || evt.code == KeyCode::ESCAPE || (evt.code == KeyCode::CHAR && evt.ch == 'd')) {
+                activeModal = ModalType::NONE;
+            } else if (evt.code == KeyCode::CHAR && (evt.ch == 'k' || evt.ch == '9')) {
+                sendSignalToSelected(SIGKILL);
+                activeModal = ModalType::NONE;
+            } else if (evt.code == KeyCode::CHAR && (evt.ch == 't' || evt.ch == '1')) {
+                sendSignalToSelected(SIGTERM);
+                activeModal = ModalType::NONE;
+            } else if (evt.code == KeyCode::CHAR && evt.ch == 's') {
+                sendSignalToSelected(SIGSTOP);
+                activeModal = ModalType::NONE;
+            } else if (evt.code == KeyCode::CHAR && evt.ch == 'c') {
+                sendSignalToSelected(SIGCONT);
+                activeModal = ModalType::NONE;
+            }
+            return;
+        }
+
+        if (activeModal == ModalType::THEME_SELECT) {
+            if (evt.code == KeyCode::UP || (evt.code == KeyCode::CHAR && evt.ch == 'k')) {
+                modalSelectedIndex = max(0, modalSelectedIndex - 1);
+            } else if (evt.code == KeyCode::DOWN || (evt.code == KeyCode::CHAR && evt.ch == 'j')) {
+                modalSelectedIndex = min(5, modalSelectedIndex + 1);
+            } else if (evt.code == KeyCode::ENTER) {
+                ThemeManager::instance().setPreset(static_cast<ThemePreset>(modalSelectedIndex));
+                setStatus("Theme switched to " + ThemeManager::instance().current().name, 2);
+                activeModal = ModalType::NONE;
+            }
             return;
         }
 
@@ -301,6 +390,16 @@ void App::processInput(const KeyEvent& evt) {
             } else if (evt.ch == '5') {
                 modules.proc = !modules.proc;
                 setStatus(string("Process Module ") + (modules.proc ? "Enabled" : "Disabled"), 2);
+            } else if (evt.ch == 't' || evt.ch == 'T') {
+                treeMode = !treeMode;
+                selectedIndex = 0;
+                scrollOffset = 0;
+                setStatus(treeMode ? "Process Tree View: ENABLED (Hierarchical)" : "Process Table View: SORTED", 2);
+            } else if (evt.ch == 'd' || evt.ch == 'D') {
+                activeModal = ModalType::INSPECTOR;
+            } else if (evt.ch == 'o' || evt.ch == 'O') {
+                activeModal = ModalType::THEME_SELECT;
+                modalSelectedIndex = static_cast<int>(ThemeManager::instance().getPreset());
             } else if (evt.ch == 'm' || evt.ch == 'M') {
                 activeModal = (activeModal == ModalType::MODULE_SELECT) ? ModalType::NONE : ModalType::MODULE_SELECT;
                 modalSelectedIndex = 0;
@@ -337,9 +436,6 @@ void App::processInput(const KeyEvent& evt) {
             } else if (evt.ch == 'p') {
                 currentSort = SortField::PID;
                 setStatus("Sorting by PID", 2);
-            } else if (evt.ch == 't' || evt.ch == 'T') {
-                currentSort = SortField::TIME;
-                setStatus("Sorting by TIME+", 2);
             } else if (evt.ch == 'u' || evt.ch == 'U') {
                 currentSort = SortField::USER;
                 setStatus("Sorting by USER", 2);
@@ -364,6 +460,10 @@ void App::processInput(const KeyEvent& evt) {
             } else if (evt.ch == 'G') {
                 selectedIndex = 999999;
             }
+            break;
+
+        case KeyCode::ENTER:
+            activeModal = ModalType::INSPECTOR;
             break;
 
         case KeyCode::UP:
@@ -404,9 +504,21 @@ void App::processInput(const KeyEvent& evt) {
             searchMode = true;
             break;
 
+        case KeyCode::F5:
+            treeMode = !treeMode;
+            selectedIndex = 0;
+            scrollOffset = 0;
+            setStatus(treeMode ? "Tree View: ENABLED" : "Table View: SORTED", 2);
+            break;
+
         case KeyCode::F6:
             activeModal = (activeModal == ModalType::SORT_SELECT) ? ModalType::NONE : ModalType::SORT_SELECT;
             modalSelectedIndex = static_cast<int>(currentSort);
+            break;
+
+        case KeyCode::F8:
+            activeModal = ModalType::THEME_SELECT;
+            modalSelectedIndex = static_cast<int>(ThemeManager::instance().getPreset());
             break;
 
         case KeyCode::F9:
@@ -433,6 +545,7 @@ void App::applySortAndFilter(const vector<Process>& source, vector<Process>& des
     dest.clear();
     string q = toLowerStr(searchQuery);
 
+    vector<Process> filtered;
     for (const auto& p : source) {
         if (!q.empty()) {
             string pidStr = to_string(p.pid);
@@ -443,8 +556,15 @@ void App::applySortAndFilter(const vector<Process>& source, vector<Process>& des
                 continue;
             }
         }
-        dest.push_back(p);
+        filtered.push_back(p);
     }
+
+    if (treeMode) {
+        dest = buildProcessTree(filtered);
+        return;
+    }
+
+    dest = std::move(filtered);
 
     stable_sort(dest.begin(), dest.end(), [this](const Process& a, const Process& b) {
         if (sortAscending) {
@@ -572,7 +692,7 @@ LayoutBoxes App::computeLayout(int rows, int cols) {
     }
 
     if (cols >= 80) {
-        int leftW = min(50, max(36, (cols * 38) / 100));
+        int leftW = min(52, max(38, (cols * 38) / 100));
         int rightW = cols - leftW;
         int leftX = 1;
         int rightX = leftW + 1;
@@ -628,6 +748,8 @@ void App::render() {
     RenderBuffer buf(size.rows, size.cols);
     buf.clear();
 
+    const Theme& theme = ThemeManager::instance().current();
+
     AppData dataCopy;
     {
         lock_guard<mutex> lock(dataMutex);
@@ -636,6 +758,7 @@ void App::render() {
 
     vector<Process> visibleProcs;
     applySortAndFilter(dataCopy.snapshot.processes, visibleProcs);
+    lastRenderedProcs = visibleProcs;
 
     if (visibleProcs.empty()) {
         selectedIndex = 0;
@@ -647,66 +770,67 @@ void App::render() {
         if (selectedIndex < 0) selectedIndex = 0;
     }
 
-    LayoutBoxes layout = computeLayout(size.rows, size.cols);
+    currentLayout = computeLayout(size.rows, size.cols);
 
-    renderTopBar(buf, layout.topBar, dataCopy);
+    renderTopBar(buf, currentLayout.topBar, dataCopy);
 
-    if (layout.cpu.isValid()) renderCpuPanel(buf, layout.cpu, dataCopy);
-    if (layout.mem.isValid()) renderMemPanel(buf, layout.mem, dataCopy);
-    if (layout.disk.isValid()) renderDiskPanel(buf, layout.disk, dataCopy);
-    if (layout.net.isValid()) renderNetPanel(buf, layout.net, dataCopy);
-    if (layout.proc.isValid()) renderProcPanel(buf, layout.proc, visibleProcs);
+    if (currentLayout.cpu.isValid()) renderCpuPanel(buf, currentLayout.cpu, dataCopy);
+    if (currentLayout.mem.isValid()) renderMemPanel(buf, currentLayout.mem, dataCopy);
+    if (currentLayout.disk.isValid()) renderDiskPanel(buf, currentLayout.disk, dataCopy);
+    if (currentLayout.net.isValid()) renderNetPanel(buf, currentLayout.net, dataCopy);
+    if (currentLayout.proc.isValid()) renderProcPanel(buf, currentLayout.proc, visibleProcs);
 
-    if (layout.searchBar.isValid()) {
+    if (currentLayout.searchBar.isValid()) {
         if (searchMode || !searchQuery.empty()) {
-            string searchStyle = Color::BG_BRIGHT_BLACK + Color::FG_BRIGHT_WHITE;
-            buf.fillRow(layout.searchBar.y, ' ', searchStyle);
-            string prompt = searchMode ? " 🔍 SEARCH (Enter to confirm, Esc to clear): " : " 🔍 FILTER ACTIVE: ";
-            buf.writeText(layout.searchBar.y, 1, prompt + searchQuery, searchStyle + Color::BOLD);
+            string searchStyle = theme.selBg.bg() + theme.selFg.fg();
+            buf.fillRow(currentLayout.searchBar.y, ' ', searchStyle);
+            string prompt = searchMode ? " 🔍 LIVE SEARCH (Enter to confirm, Esc to clear): " : " 🔍 FILTER ACTIVE: ";
+            buf.writeText(currentLayout.searchBar.y, 1, prompt + searchQuery, searchStyle + Color::BOLD);
         } else if (!statusMessage.empty() && chrono::steady_clock::now() < statusMessageExpiry) {
-            string msgStyle = Color::BG_BLUE + Color::FG_BRIGHT_WHITE + Color::BOLD;
-            buf.fillRow(layout.searchBar.y, ' ', msgStyle);
-            buf.writeText(layout.searchBar.y, 2, " ℹ " + statusMessage + " ", msgStyle);
+            string msgStyle = theme.titleActive.bg() + Color::rgb(0, 0, 0, false) + Color::BOLD;
+            buf.fillRow(currentLayout.searchBar.y, ' ', msgStyle);
+            buf.writeText(currentLayout.searchBar.y, 2, " ℹ " + statusMessage + " ", msgStyle);
         }
     }
 
-    renderFooter(buf, layout.footer);
+    renderFooter(buf, currentLayout.footer);
     renderModals(buf);
 
     buf.flush();
 }
 
 void App::renderTopBar(RenderBuffer& buf, const Rect& rect, const AppData& data) {
-    string barStyle = Color::BG_BLACK + Color::FG_WHITE;
+    const Theme& theme = ThemeManager::instance().current();
+    string barStyle = theme.bg.bg() + theme.textMain.fg();
     buf.fillRow(rect.y, ' ', barStyle);
 
     ostringstream ss;
 
-    auto addModBadge = [&](const string& key, const string& name, bool active) {
+    auto addModBadge = [&](const string& key, const string& name, bool active, const ThemeColor& col) {
         if (active) {
-            ss << Color::BG_CYAN << Color::FG_BLACK << Color::BOLD << " " << key << ":" << name << "✓ " << Color::RESET << barStyle << " ";
+            ss << col.bg() << Color::rgb(0, 0, 0, false) << Color::BOLD << " " << key << ":" << name << " " << Color::RESET << barStyle << " ";
         } else {
-            ss << Color::FG_BRIGHT_BLACK << "[" << key << ":" << name << "] " << Color::RESET << barStyle;
+            ss << theme.textDim.fg() << "[" << key << ":" << name << "] " << Color::RESET << barStyle;
         }
     };
 
-    ss << Color::BOLD << Color::FG_BRIGHT_CYAN << "btop++ " << Color::RESET << barStyle;
-    addModBadge("1", "cpu", modules.cpu);
-    addModBadge("2", "mem", modules.mem);
-    addModBadge("3", "disk", modules.disk);
-    addModBadge("4", "net", modules.net);
-    addModBadge("5", "proc", modules.proc);
+    ss << Color::BOLD << theme.titleActive.fg() << "btop++ " << Color::RESET << barStyle;
+    addModBadge("1", "cpu", modules.cpu, theme.cpuBorder);
+    addModBadge("2", "mem", modules.mem, theme.memBorder);
+    addModBadge("3", "disk", modules.disk, theme.diskBorder);
+    addModBadge("4", "net", modules.net, theme.netBorder);
+    addModBadge("5", "proc", modules.proc, theme.procBorder);
 
-    ss << " │ " << Color::FG_YELLOW << Color::BOLD << "Load: " << Color::RESET << barStyle
+    ss << " │ " << theme.meterMid.fg() << Color::BOLD << "Load: " << Color::RESET << barStyle
        << fixed << setprecision(2) << data.cpuInfo.load1 << " " << data.cpuInfo.load5 << " " << data.cpuInfo.load15;
 
     if (data.sensorInfo.isAvailable && data.sensorInfo.cpuTempC > 0) {
-        string tempCol = data.sensorInfo.cpuTempC > 80.0 ? Color::FG_BRIGHT_RED :
-                        (data.sensorInfo.cpuTempC > 65.0 ? Color::FG_BRIGHT_YELLOW : Color::FG_BRIGHT_GREEN);
+        string tempCol = data.sensorInfo.cpuTempC > 80.0 ? theme.meterHigh.fg() :
+                        (data.sensorInfo.cpuTempC > 65.0 ? theme.meterMid.fg() : theme.meterLow.fg());
         ss << " │ " << Color::BOLD << "Temp: " << tempCol << fixed << setprecision(1) << data.sensorInfo.cpuTempC << "°C" << Color::RESET << barStyle;
     }
 
-    ss << " │ " << Color::FG_MAGENTA << Color::BOLD << "Up: " << Color::RESET << barStyle
+    ss << " │ " << theme.procBorder.fg() << Color::BOLD << "Up: " << Color::RESET << barStyle
        << RenderBuffer::formatTime(data.cpuInfo.uptimeSeconds);
 
     buf.writeText(rect.y, 1, ss.str(), barStyle);
@@ -718,17 +842,18 @@ void App::renderTopBar(RenderBuffer& buf, const Rect& rect, const AppData& data)
            << setfill('0') << setw(2) << tm.tm_min << ":"
            << setfill('0') << setw(2) << tm.tm_sec;
 
-    string rightInfo = "⏱ " + to_string(refreshIntervalMs.load()) + "ms  " + timeSS.str() + " ";
+    string rightInfo = "🎨 " + theme.name + " │ ⏱ " + to_string(refreshIntervalMs.load()) + "ms " + timeSS.str() + " ";
     int rightCol = rect.w - static_cast<int>(rightInfo.length()) + 1;
-    if (rightCol > 40) {
-        buf.writeText(rect.y, rightCol, rightInfo, Color::FG_BRIGHT_BLACK + Color::BOLD);
+    if (rightCol > 45) {
+        buf.writeText(rect.y, rightCol, rightInfo, theme.textDim.fg() + Color::BOLD);
     }
 }
 
 void App::renderCpuPanel(RenderBuffer& buf, const Rect& rect, const AppData& data) {
+    const Theme& theme = ThemeManager::instance().current();
     ostringstream badgeSS;
     badgeSS << fixed << setprecision(1) << data.totalCpuUsage << "%";
-    buf.drawRoundedBox(rect, "CPU", badgeSS.str(), Color::FG_CYAN, Color::BOLD + Color::FG_BRIGHT_CYAN);
+    buf.drawRoundedBox(rect, "CPU", badgeSS.str(), theme.cpuBorder.fg(), Color::BOLD + theme.cpuBorder.fg());
 
     int innerY = rect.innerY();
     int innerX = rect.innerX();
@@ -740,7 +865,9 @@ void App::renderCpuPanel(RenderBuffer& buf, const Rect& rect, const AppData& dat
     int curY = innerY;
 
     if (numCores == 0) {
-        buf.drawGradientBar(curY++, innerX, innerW, data.totalCpuUsage, "Avg CPU", "%", 0, 180, 255, 255, 60, 100);
+        buf.drawGradientBar(curY++, innerX, innerW, data.totalCpuUsage, "Avg CPU", "%",
+                            theme.meterLow.r, theme.meterLow.g, theme.meterLow.b,
+                            theme.meterHigh.r, theme.meterHigh.g, theme.meterHigh.b);
     } else {
         int colsCount = 2;
         if (innerW >= 66 && numCores >= 12) colsCount = 3;
@@ -757,7 +884,9 @@ void App::renderCpuPanel(RenderBuffer& buf, const Rect& rect, const AppData& dat
                     int x = innerX + c * (colW + 2);
                     ostringstream lss;
                     lss << "C" << setw(numCores >= 10 ? 2 : 1) << (coreIdx + 1);
-                    buf.drawGradientBar(curY, x, colW, data.coreUsages[coreIdx], lss.str(), "%", 0, 200, 255, 255, 80, 80);
+                    buf.drawGradientBar(curY, x, colW, data.coreUsages[coreIdx], lss.str(), "%",
+                                        theme.meterLow.r, theme.meterLow.g, theme.meterLow.b,
+                                        theme.meterHigh.r, theme.meterHigh.g, theme.meterHigh.b);
                 }
             }
             curY++;
@@ -766,7 +895,8 @@ void App::renderCpuPanel(RenderBuffer& buf, const Rect& rect, const AppData& dat
 
     int graphH = (innerY + innerH) - curY;
     if (graphH >= 1) {
-        vector<string> matrix = cpuGraph.renderBrailleMatrix(graphH, innerW, 0.0, 100.0, Color::FG_BRIGHT_RED, Color::FG_BRIGHT_CYAN);
+        vector<string> matrix = cpuGraph.renderBrailleMatrix(graphH, innerW, 0.0, 100.0,
+                                                            theme.graphCpu.fg(), theme.meterHigh.fg(), true);
         for (int r = 0; r < graphH; ++r) {
             buf.writeText(curY + r, innerX, matrix[r]);
         }
@@ -774,9 +904,10 @@ void App::renderCpuPanel(RenderBuffer& buf, const Rect& rect, const AppData& dat
 }
 
 void App::renderMemPanel(RenderBuffer& buf, const Rect& rect, const AppData& data) {
+    const Theme& theme = ThemeManager::instance().current();
     ostringstream badgeSS;
     badgeSS << RenderBuffer::formatBytes(data.memInfo.usedBytes) << " / " << RenderBuffer::formatBytes(data.memInfo.totalBytes);
-    buf.drawRoundedBox(rect, "MEM", badgeSS.str(), Color::FG_MAGENTA, Color::BOLD + Color::FG_BRIGHT_MAGENTA);
+    buf.drawRoundedBox(rect, "MEM", badgeSS.str(), theme.memBorder.fg(), Color::BOLD + theme.memBorder.fg());
 
     int innerY = rect.innerY();
     int innerX = rect.innerX();
@@ -786,23 +917,28 @@ void App::renderMemPanel(RenderBuffer& buf, const Rect& rect, const AppData& dat
 
     int curY = innerY;
 
-    buf.drawGradientBar(curY++, innerX, innerW, data.memInfo.memUsagePercent, "RAM", "%", 140, 60, 255, 255, 60, 180);
+    buf.drawGradientBar(curY++, innerX, innerW, data.memInfo.memUsagePercent, "RAM", "%",
+                        theme.meterLow.r, theme.meterLow.g, theme.meterLow.b,
+                        theme.meterHigh.r, theme.meterHigh.g, theme.meterHigh.b);
 
     if (curY < innerY + innerH) {
         ostringstream memDetail;
-        memDetail << Color::FG_BRIGHT_BLACK << "Used:" << Color::RESET << RenderBuffer::formatBytes(data.memInfo.usedBytes)
-                  << " " << Color::FG_BRIGHT_BLACK << "Free:" << Color::RESET << RenderBuffer::formatBytes(data.memInfo.freeBytes)
-                  << " " << Color::FG_BRIGHT_BLACK << "Avail:" << Color::RESET << RenderBuffer::formatBytes(data.memInfo.availableBytes);
+        memDetail << theme.textDim.fg() << "Used: " << theme.textMain.fg() << RenderBuffer::formatBytes(data.memInfo.usedBytes)
+                  << "  " << theme.textDim.fg() << "Free: " << theme.textMain.fg() << RenderBuffer::formatBytes(data.memInfo.freeBytes)
+                  << "  " << theme.textDim.fg() << "Avail: " << theme.textMain.fg() << RenderBuffer::formatBytes(data.memInfo.availableBytes);
         buf.writeTextClipped(curY++, innerX, innerW, memDetail.str());
     }
 
     if (curY < innerY + innerH && data.memInfo.swapTotalBytes > 0) {
-        buf.drawGradientBar(curY++, innerX, innerW, data.memInfo.swapUsagePercent, "SWP", "%", 60, 200, 120, 255, 120, 0);
+        buf.drawGradientBar(curY++, innerX, innerW, data.memInfo.swapUsagePercent, "SWP", "%",
+                            theme.meterMid.r, theme.meterMid.g, theme.meterMid.b,
+                            theme.meterHigh.r, theme.meterHigh.g, theme.meterHigh.b);
     }
 
     int graphH = (innerY + innerH) - curY;
     if (graphH >= 1) {
-        vector<string> matrix = memGraph.renderBrailleMatrix(graphH, innerW, 0.0, 100.0, Color::FG_BRIGHT_MAGENTA, Color::FG_BRIGHT_BLUE);
+        vector<string> matrix = memGraph.renderBrailleMatrix(graphH, innerW, 0.0, 100.0,
+                                                            theme.graphMem.fg(), theme.procBorder.fg(), true);
         for (int r = 0; r < graphH; ++r) {
             buf.writeText(curY + r, innerX, matrix[r]);
         }
@@ -810,10 +946,11 @@ void App::renderMemPanel(RenderBuffer& buf, const Rect& rect, const AppData& dat
 }
 
 void App::renderDiskPanel(RenderBuffer& buf, const Rect& rect, const AppData& data) {
+    const Theme& theme = ThemeManager::instance().current();
     ostringstream badgeSS;
     badgeSS << "▲ " << RenderBuffer::formatRate(data.diskInfo.totalReadBytesSec)
             << " ▼ " << RenderBuffer::formatRate(data.diskInfo.totalWriteBytesSec);
-    buf.drawRoundedBox(rect, "DISK", badgeSS.str(), Color::FG_YELLOW, Color::BOLD + Color::FG_BRIGHT_YELLOW);
+    buf.drawRoundedBox(rect, "DISK", badgeSS.str(), theme.diskBorder.fg(), Color::BOLD + theme.diskBorder.fg());
 
     int innerY = rect.innerY();
     int innerX = rect.innerX();
@@ -831,20 +968,23 @@ void App::renderDiskPanel(RenderBuffer& buf, const Rect& rect, const AppData& da
         ostringstream mLabel;
         mLabel << m.mountPoint;
         string valSuffix = "% (" + RenderBuffer::formatBytes(m.usedBytes) + "/" + RenderBuffer::formatBytes(m.totalBytes) + ")";
-        buf.drawGradientBar(curY++, innerX, innerW, m.usedPercent, mLabel.str(), valSuffix, 255, 180, 0, 255, 60, 60);
+        buf.drawGradientBar(curY++, innerX, innerW, m.usedPercent, mLabel.str(), valSuffix,
+                            theme.diskBorder.r, theme.diskBorder.g, theme.diskBorder.b,
+                            theme.meterHigh.r, theme.meterHigh.g, theme.meterHigh.b);
     }
 
     int graphH = (innerY + innerH) - curY;
     if (graphH >= 1) {
         double maxRate = max(1024.0 * 1024.0, max(diskReadGraph.getMax(), diskWriteGraph.getMax()));
-        string readSpark = diskReadGraph.renderBrailleLine(innerW / 2, 0.0, maxRate, Color::FG_BRIGHT_GREEN);
-        string writeSpark = diskWriteGraph.renderBrailleLine(innerW - (innerW / 2) - 1, 0.0, maxRate, Color::FG_BRIGHT_YELLOW);
+        string readSpark = diskReadGraph.renderBrailleLine(innerW / 2, 0.0, maxRate, theme.graphDiskRead.fg());
+        string writeSpark = diskWriteGraph.renderBrailleLine(innerW - (innerW / 2) - 1, 0.0, maxRate, theme.graphDiskWrite.fg());
 
         buf.writeText(curY, innerX, "R:" + readSpark + " W:" + writeSpark);
     }
 }
 
 void App::renderNetPanel(RenderBuffer& buf, const Rect& rect, const AppData& data) {
+    const Theme& theme = ThemeManager::instance().current();
     string activeIface = "all";
     uint64_t rxSec = data.netInfo.totalRxBytesSec;
     uint64_t txSec = data.netInfo.totalTxBytesSec;
@@ -862,7 +1002,7 @@ void App::renderNetPanel(RenderBuffer& buf, const Rect& rect, const AppData& dat
     ostringstream badgeSS;
     badgeSS << "[" << activeIface << "] ▼ " << RenderBuffer::formatRate(rxSec)
             << " ▲ " << RenderBuffer::formatRate(txSec);
-    buf.drawRoundedBox(rect, "NET", badgeSS.str(), Color::FG_GREEN, Color::BOLD + Color::FG_BRIGHT_GREEN);
+    buf.drawRoundedBox(rect, "NET", badgeSS.str(), theme.netBorder.fg(), Color::BOLD + theme.netBorder.fg());
 
     int innerY = rect.innerY();
     int innerX = rect.innerX();
@@ -873,15 +1013,16 @@ void App::renderNetPanel(RenderBuffer& buf, const Rect& rect, const AppData& dat
     int curY = innerY;
 
     ostringstream rateSS;
-    rateSS << Color::FG_BRIGHT_CYAN << "▼ RX: " << Color::BOLD << RenderBuffer::formatRate(rxSec) << Color::RESET
-           << "  " << Color::FG_BRIGHT_MAGENTA << "▲ TX: " << Color::BOLD << RenderBuffer::formatRate(txSec) << Color::RESET
-           << "  " << Color::FG_BRIGHT_BLACK << "Tot: " << RenderBuffer::formatBytes(totalRx) << "/" << RenderBuffer::formatBytes(totalTx);
+    rateSS << theme.graphNetRx.fg() << "▼ RX: " << Color::BOLD << RenderBuffer::formatRate(rxSec) << Color::RESET
+           << "  " << theme.graphNetTx.fg() << "▲ TX: " << Color::BOLD << RenderBuffer::formatRate(txSec) << Color::RESET
+           << "  " << theme.textDim.fg() << "Tot: " << RenderBuffer::formatBytes(totalRx) << "/" << RenderBuffer::formatBytes(totalTx);
     buf.writeTextClipped(curY++, innerX, innerW, rateSS.str());
 
     int graphH = (innerY + innerH) - curY;
     if (graphH >= 1) {
         double maxNetRate = max(100.0 * 1024.0, max(netRxGraph.getMax(), netTxGraph.getMax()));
-        vector<string> rxMatrix = netRxGraph.renderBrailleMatrix(graphH, innerW, 0.0, maxNetRate, Color::FG_BRIGHT_CYAN, Color::FG_BLUE);
+        vector<string> rxMatrix = netRxGraph.renderBrailleMatrix(graphH, innerW, 0.0, maxNetRate,
+                                                                theme.graphNetRx.fg(), theme.procBorder.fg(), true);
         for (int r = 0; r < graphH; ++r) {
             buf.writeText(curY + r, innerX, rxMatrix[r]);
         }
@@ -889,12 +1030,17 @@ void App::renderNetPanel(RenderBuffer& buf, const Rect& rect, const AppData& dat
 }
 
 void App::renderProcPanel(RenderBuffer& buf, const Rect& rect, const vector<Process>& procs) {
+    const Theme& theme = ThemeManager::instance().current();
     ostringstream badgeSS;
-    badgeSS << procs.size() << " procs";
-    if (selectedIndex < static_cast<int>(procs.size())) {
-        badgeSS << " (PID " << procs[selectedIndex].pid << ")";
+    if (treeMode) {
+        badgeSS << procs.size() << " procs (Tree View)";
+    } else {
+        badgeSS << procs.size() << " procs";
     }
-    buf.drawRoundedBox(rect, "PROC", badgeSS.str(), Color::FG_BLUE, Color::BOLD + Color::FG_BRIGHT_BLUE);
+    if (selectedIndex < static_cast<int>(procs.size())) {
+        badgeSS << " [PID " << procs[selectedIndex].pid << "]";
+    }
+    buf.drawRoundedBox(rect, "PROC", badgeSS.str(), theme.procBorder.fg(), Color::BOLD + theme.procBorder.fg());
 
     int innerY = rect.innerY();
     int innerX = rect.innerX();
@@ -945,20 +1091,21 @@ void App::renderProcPanel(RenderBuffer& buf, const Rect& rect, const vector<Proc
         };
     }
 
+    string hdrStyle = theme.procBorder.bg() + Color::rgb(0, 0, 0, false) + Color::BOLD;
     ostringstream hdr;
     for (const auto& c : cols) {
         string title = c.name;
-        if (currentSort == c.field) title += sortArrow;
+        if (!treeMode && currentSort == c.field) title += sortArrow;
         string cell = RenderBuffer::truncateOrPad(title, c.width, !c.alignRight);
-        if (currentSort == c.field) {
-            hdr << Color::BG_CYAN << Color::FG_BLACK << Color::BOLD << cell << Color::BG_BLUE << Color::FG_WHITE << " ";
+        if (!treeMode && currentSort == c.field) {
+            hdr << theme.titleActive.bg() << Color::rgb(0, 0, 0, false) << Color::BOLD << cell << hdrStyle << " ";
         } else {
             hdr << cell << " ";
         }
     }
-    hdr << "Command";
+    hdr << (treeMode ? "Tree / Command" : "Command");
 
-    buf.writeTextClipped(innerY, innerX, innerW, hdr.str(), Color::BG_BLUE + Color::FG_WHITE + Color::BOLD);
+    buf.writeTextClipped(innerY, innerX, innerW, hdr.str(), hdrStyle);
 
     int maxRows = innerH - 1;
     if (selectedIndex < scrollOffset) {
@@ -980,9 +1127,14 @@ void App::renderProcPanel(RenderBuffer& buf, const Rect& rect, const vector<Proc
 
         string rowStyle;
         if (isSelected) {
-            rowStyle = Color::BG_BRIGHT_BLUE + Color::FG_BRIGHT_WHITE + Color::BOLD;
+            rowStyle = theme.selBg.bg() + theme.selFg.fg() + Color::BOLD;
         } else if (i % 2 == 1) {
-            rowStyle = Color::rgb(20, 24, 32, true);
+            rowStyle = Color::rgb(
+                std::clamp(theme.bg.r + 8, 0, 255),
+                std::clamp(theme.bg.g + 8, 0, 255),
+                std::clamp(theme.bg.b + 12, 0, 255),
+                true
+            );
         }
 
         ostringstream rowSS;
@@ -1010,13 +1162,13 @@ void App::renderProcPanel(RenderBuffer& buf, const Rect& rect, const vector<Proc
             string cell = RenderBuffer::truncateOrPad(val, c.width, !c.alignRight);
 
             if (!isSelected && c.name == "CPU%" && p.cpu_usage > 40.0) {
-                rowSS << Color::FG_BRIGHT_RED << Color::BOLD << cell << Color::RESET;
+                rowSS << theme.meterHigh.fg() << Color::BOLD << cell << Color::RESET;
                 if (!rowStyle.empty()) rowSS << rowStyle;
             } else if (!isSelected && c.name == "CPU%" && p.cpu_usage > 15.0) {
-                rowSS << Color::FG_BRIGHT_YELLOW << cell << Color::RESET;
+                rowSS << theme.meterMid.fg() << cell << Color::RESET;
                 if (!rowStyle.empty()) rowSS << rowStyle;
             } else if (!isSelected && c.name == "MEM%" && p.mem_usage > 30.0) {
-                rowSS << Color::FG_BRIGHT_MAGENTA << cell << Color::RESET;
+                rowSS << theme.memBorder.fg() << cell << Color::RESET;
                 if (!rowStyle.empty()) rowSS << rowStyle;
             } else {
                 rowSS << cell;
@@ -1024,49 +1176,145 @@ void App::renderProcPanel(RenderBuffer& buf, const Rect& rect, const vector<Proc
             rowSS << " ";
         }
 
-        rowSS << p.cmdline;
+        if (treeMode) {
+            rowSS << theme.textDim.fg() << p.tree_prefix << Color::RESET;
+            if (!rowStyle.empty()) rowSS << rowStyle;
+            rowSS << (p.is_tree_leaf ? p.name : (Color::BOLD + p.name + Color::RESET));
+            if (!rowStyle.empty()) rowSS << rowStyle;
+        } else {
+            rowSS << p.cmdline;
+        }
+
         buf.writeTextClipped(printRow++, innerX, innerW, rowSS.str(), rowStyle);
     }
 }
 
 void App::renderFooter(RenderBuffer& buf, const Rect& rect) {
-    string fStyle = Color::BG_BLACK + Color::FG_WHITE;
+    const Theme& theme = ThemeManager::instance().current();
+    string fStyle = theme.bg.bg() + theme.textMain.fg();
     buf.fillRow(rect.y, ' ', fStyle);
 
     ostringstream ss;
     auto addKey = [&](const string& k, const string& desc) {
-        ss << Color::BG_CYAN << Color::FG_BLACK << Color::BOLD << " " << k << " " << Color::RESET
-           << Color::BG_BLACK << Color::FG_WHITE << desc << " ";
+        ss << theme.procBorder.bg() << Color::rgb(0, 0, 0, false) << Color::BOLD << " " << k << " " << Color::RESET
+           << fStyle << " " << desc << " ";
     };
 
-    addKey("1-5", "Modules");
+    addKey("1-5", "Panels");
     addKey("Tab", "Preset");
-    addKey("i", "Iface");
+    addKey("t", treeMode ? "Flat" : "Tree");
+    addKey("Enter", "Inspect");
+    addKey("o", "Theme");
     addKey("/", "Search");
-    addKey("c/e/p/t", "Sort");
+    addKey("c/e/p", "Sort");
     addKey("k", "Kill");
-    addKey("m", "Menu");
     addKey("F1", "Help");
     addKey("q", "Quit");
 
     buf.writeText(rect.y, 1, ss.str(), fStyle);
 }
 
-void App::renderModals(RenderBuffer& buf) {
-    if (activeModal == ModalType::NONE) return;
+void App::renderInspectorModal(RenderBuffer& buf) {
+    if (selectedIndex < 0 || selectedIndex >= static_cast<int>(lastRenderedProcs.size())) return;
+
+    const Theme& theme = ThemeManager::instance().current();
+    const auto& p = lastRenderedProcs[selectedIndex];
 
     int cols = buf.getCols();
     int rows = buf.getRows();
 
-    if (activeModal == ModalType::MODULE_SELECT) {
+    int width = min(76, cols - 4);
+    int height = min(22, rows - 4);
+    int startX = (cols - width) / 2;
+    int startY = (rows - height) / 2;
+
+    ostringstream titleSS;
+    titleSS << " Process Inspector: " << p.name << " (PID " << p.pid << ") ";
+    buf.drawRoundedBox(startY, startX, height, width, titleSS.str(), "Enter / Esc to Close",
+                        theme.procBorder.fg(), theme.bg.bg() + theme.procBorder.fg() + Color::BOLD);
+
+    for (int r = startY + 1; r < startY + height - 1; ++r) {
+        buf.writeText(r, startX + 1, string(width - 2, ' '), theme.bg.bg());
+    }
+
+    int r = startY + 2;
+    auto writeField = [&](const string& label, const string& val, const string& valColor = "") {
+        if (r < startY + height - 2) {
+            buf.writeText(r, startX + 3, label + ":", theme.textDim.fg() + Color::BOLD);
+            string col = valColor.empty() ? theme.textMain.fg() : valColor;
+            buf.writeTextClipped(r++, startX + 22, width - 26, val, col);
+        }
+    };
+
+    writeField("Process Name", p.name, theme.titleActive.fg() + Color::BOLD);
+    writeField("Process ID", to_string(p.pid) + "  (Parent PID: " + to_string(p.ppid) + ")");
+    writeField("User & State", p.user + " │ State: " + string(1, p.state) + " │ Nice: " + to_string(p.nice) + " │ Priority: " + to_string(p.priority));
+    writeField("Threads Count", to_string(p.threads));
+
+    ostringstream memSS;
+    memSS << "RES: " << RenderBuffer::formatBytes(p.res_bytes)
+          << " (" << fixed << setprecision(1) << p.mem_usage << "%)  VIRT: "
+          << RenderBuffer::formatBytes(p.virt_bytes) << "  SHR: "
+          << RenderBuffer::formatBytes(p.shr_bytes);
+    writeField("Memory Footprint", memSS.str(), theme.memBorder.fg());
+
+    ostringstream cpuSS;
+    cpuSS << fixed << setprecision(1) << p.cpu_usage << "%  (User Ticks: "
+          << p.utime_ticks << ", System Ticks: " << p.stime_ticks << ", Total Time: "
+          << RenderBuffer::formatTime(p.cpu_time_seconds) << ")";
+    writeField("CPU Utilization", cpuSS.str(), theme.cpuBorder.fg());
+
+    writeField("Full Command", p.cmdline, theme.textMain.fg());
+
+    r++;
+    if (r < startY + height - 1) {
+        string actionInfo = " [k] Force Kill (SIGKILL) │ [t] Terminate (SIGTERM) │ [s] Stop │ [c] Resume ";
+        buf.writeTextClipped(startY + height - 2, startX + 3, width - 6, actionInfo, theme.selBg.bg() + theme.selFg.fg() + Color::BOLD);
+    }
+}
+
+void App::renderModals(RenderBuffer& buf) {
+    if (activeModal == ModalType::NONE) return;
+
+    if (activeModal == ModalType::INSPECTOR) {
+        renderInspectorModal(buf);
+        return;
+    }
+
+    const Theme& theme = ThemeManager::instance().current();
+    int cols = buf.getCols();
+    int rows = buf.getRows();
+
+    if (activeModal == ModalType::THEME_SELECT) {
+        int width = 44;
+        int height = 12;
+        int startX = (cols - width) / 2;
+        int startY = (rows - height) / 2;
+
+        buf.drawRoundedBox(startY, startX, height, width, " Color Themes (Live Switch) ", "",
+                            theme.titleActive.fg(), theme.bg.bg() + theme.titleActive.fg() + Color::BOLD);
+        for (int r = startY + 1; r < startY + height - 1; ++r) {
+            buf.writeText(r, startX + 1, string(width - 2, ' '), theme.bg.bg());
+        }
+
+        const auto& allThemes = ThemeManager::instance().getAllThemes();
+        for (size_t i = 0; i < allThemes.size(); ++i) {
+            int r = startY + 2 + static_cast<int>(i);
+            bool isSel = (static_cast<int>(i) == modalSelectedIndex);
+            bool isCurr = (i == static_cast<size_t>(ThemeManager::instance().getPreset()));
+            string style = isSel ? (theme.selBg.bg() + theme.selFg.fg() + Color::BOLD) : (theme.bg.bg() + theme.textMain.fg());
+            string line = string(isSel ? " ▶ " : "   ") + allThemes[i].name + (isCurr ? " (Active)" : "");
+            buf.writeText(r, startX + 2, RenderBuffer::truncateOrPad(line, width - 4, true), style);
+        }
+    } else if (activeModal == ModalType::MODULE_SELECT) {
         int width = 46;
         int height = 12;
         int startX = (cols - width) / 2;
         int startY = (rows - height) / 2;
 
-        buf.drawRoundedBox(startY, startX, height, width, " Module Configuration ", "", Color::FG_BRIGHT_CYAN, Color::BG_BLACK + Color::FG_CYAN + Color::BOLD);
+        buf.drawRoundedBox(startY, startX, height, width, " Module Configuration ", "", theme.procBorder.fg(), theme.bg.bg() + theme.procBorder.fg() + Color::BOLD);
         for (int r = startY + 1; r < startY + height - 1; ++r) {
-            buf.writeText(r, startX + 1, string(width - 2, ' '), Color::BG_BLACK);
+            buf.writeText(r, startX + 1, string(width - 2, ' '), theme.bg.bg());
         }
 
         const char* modLabels[] = {
@@ -1081,40 +1329,43 @@ void App::renderModals(RenderBuffer& buf) {
         for (int i = 0; i < 6; ++i) {
             int r = startY + 2 + i;
             bool isSel = (i == modalSelectedIndex);
-            string style = isSel ? (Color::BG_CYAN + Color::FG_BLACK + Color::BOLD) : (Color::BG_BLACK + Color::FG_WHITE);
+            string style = isSel ? (theme.selBg.bg() + theme.selFg.fg() + Color::BOLD) : (theme.bg.bg() + theme.textMain.fg());
             string line = string(isSel ? " ▶ " : "   ") + modLabels[i];
             buf.writeText(r, startX + 2, RenderBuffer::truncateOrPad(line, width - 4, true), style);
         }
     } else if (activeModal == ModalType::HELP) {
-        int width = min(72, cols - 4);
-        int height = min(22, rows - 4);
+        int width = min(74, cols - 4);
+        int height = min(23, rows - 4);
         int startX = (cols - width) / 2;
         int startY = (rows - height) / 2;
 
-        buf.drawRoundedBox(startY, startX, height, width, " Help & Keyboard Shortcuts ", "", Color::FG_CYAN, Color::BG_BLACK + Color::FG_CYAN + Color::BOLD);
+        buf.drawRoundedBox(startY, startX, height, width, " Help & Keyboard Shortcuts ", "", theme.procBorder.fg(), theme.bg.bg() + theme.procBorder.fg() + Color::BOLD);
         for (int r = startY + 1; r < startY + height - 1; ++r) {
-            buf.writeText(r, startX + 1, string(width - 2, ' '), Color::BG_BLACK);
+            buf.writeText(r, startX + 1, string(width - 2, ' '), theme.bg.bg());
         }
 
         int r = startY + 1;
         auto addHelp = [&](const string& key, const string& desc) {
             if (r < startY + height - 1) {
-                buf.writeText(r, startX + 3, key, Color::BG_BLACK + Color::FG_YELLOW + Color::BOLD);
-                buf.writeText(r++, startX + 22, desc, Color::BG_BLACK + Color::FG_WHITE);
+                buf.writeText(r, startX + 3, key, theme.bg.bg() + theme.meterMid.fg() + Color::BOLD);
+                buf.writeText(r++, startX + 22, desc, theme.bg.bg() + theme.textMain.fg());
             }
         };
 
         addHelp("1, 2, 3, 4, 5", "Toggle CPU, MEM, DISK, NET, PROC panels");
         addHelp("Tab / P", "Cycle layout presets (Full, Resources, Proc, Minimal)");
+        addHelp("t / F5", "Toggle Process Tree Hierarchy (├─ child, └─ leaf)");
+        addHelp("Enter / d", "Open Deep Process Inspector modal");
+        addHelp("o / F8", "Open Live Color Theme Switcher");
         addHelp("m / F2", "Open Module configuration modal");
         addHelp("i / I", "Cycle network interface (eth0, wlan0, etc.)");
         addHelp("+ / -", "Increase / decrease update frequency");
+        addHelp("Mouse Click/Scroll", "Click rows to inspect, scroll list with wheel");
         addHelp("Up / Down, j/k", "Navigate process list");
         addHelp("PgUp / PgDn", "Scroll 15 processes");
         addHelp("Home / End, g/G", "Jump to top / bottom");
         addHelp("/ or F3", "Live substring search / filter");
-        addHelp("c / e / p / t", "Sort by CPU%, MEM%, PID, TIME+");
-        addHelp("u / n", "Sort by USER, Command Name");
+        addHelp("c / e / p", "Sort by CPU%, MEM%, PID");
         addHelp("r", "Invert sort direction (asc/desc)");
         addHelp("F6", "Open interactive sort menu");
         addHelp("F9 or k", "Send signal (SIGTERM/KILL) to process");
@@ -1126,9 +1377,9 @@ void App::renderModals(RenderBuffer& buf) {
         int startX = (cols - width) / 2;
         int startY = (rows - height) / 2;
 
-        buf.drawRoundedBox(startY, startX, height, width, " Select Sort Field ", "", Color::FG_CYAN, Color::BG_BLACK + Color::FG_CYAN + Color::BOLD);
+        buf.drawRoundedBox(startY, startX, height, width, " Select Sort Field ", "", theme.procBorder.fg(), theme.bg.bg() + theme.procBorder.fg() + Color::BOLD);
         for (int r = startY + 1; r < startY + height - 1; ++r) {
-            buf.writeText(r, startX + 1, string(width - 2, ' '), Color::BG_BLACK);
+            buf.writeText(r, startX + 1, string(width - 2, ' '), theme.bg.bg());
         }
 
         const char* sortNames[] = {
@@ -1140,7 +1391,7 @@ void App::renderModals(RenderBuffer& buf) {
         for (int i = 0; i < 8; ++i) {
             int r = startY + 2 + i;
             bool isSel = (i == modalSelectedIndex);
-            string style = isSel ? (Color::BG_CYAN + Color::FG_BLACK + Color::BOLD) : (Color::BG_BLACK + Color::FG_WHITE);
+            string style = isSel ? (theme.selBg.bg() + theme.selFg.fg() + Color::BOLD) : (theme.bg.bg() + theme.textMain.fg());
             string line = string(isSel ? " ▶ " : "   ") + sortNames[i];
             buf.writeText(r, startX + 2, RenderBuffer::truncateOrPad(line, width - 4, true), style);
         }
@@ -1150,9 +1401,9 @@ void App::renderModals(RenderBuffer& buf) {
         int startX = (cols - width) / 2;
         int startY = (rows - height) / 2;
 
-        buf.drawRoundedBox(startY, startX, height, width, " Send Signal to Process ", "", Color::FG_RED, Color::BG_BLACK + Color::FG_RED + Color::BOLD);
+        buf.drawRoundedBox(startY, startX, height, width, " Send Signal to Process ", "", theme.meterHigh.fg(), theme.bg.bg() + theme.meterHigh.fg() + Color::BOLD);
         for (int r = startY + 1; r < startY + height - 1; ++r) {
-            buf.writeText(r, startX + 1, string(width - 2, ' '), Color::BG_BLACK);
+            buf.writeText(r, startX + 1, string(width - 2, ' '), theme.bg.bg());
         }
 
         const char* signalNames[] = {
@@ -1167,7 +1418,7 @@ void App::renderModals(RenderBuffer& buf) {
         for (int i = 0; i < 6; ++i) {
             int r = startY + 2 + i;
             bool isSel = (i == modalSelectedIndex);
-            string style = isSel ? (Color::BG_RED + Color::FG_WHITE + Color::BOLD) : (Color::BG_BLACK + Color::FG_WHITE);
+            string style = isSel ? (theme.meterHigh.bg() + Color::rgb(255, 255, 255, false) + Color::BOLD) : (theme.bg.bg() + theme.textMain.fg());
             string line = string(isSel ? " ▶ " : "   ") + signalNames[i];
             buf.writeText(r, startX + 2, RenderBuffer::truncateOrPad(line, width - 4, true), style);
         }

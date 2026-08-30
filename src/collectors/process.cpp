@@ -136,9 +136,12 @@ static bool readProcessStat(int pid, Process& proc) {
     proc.priority = priority;
     proc.nice = nice;
     proc.threads = num_threads;
+    proc.utime_ticks = utime;
+    proc.stime_ticks = stime;
     proc.cpu_time_ticks = utime + stime;
     proc.virt_bytes = vsize;
     proc.res_bytes = rss * pageSize;
+    proc.start_time_seconds = (hertz > 0) ? (starttime / hertz) : 0;
 
     return true;
 }
@@ -217,4 +220,95 @@ ProcessSnapshot getProcessesSnapshot(long totalCpuDeltaTicks, int numCores, uint
     prevProcessTimes = std::move(currProcessTimes);
 
     return snapshot;
+}
+
+static void recurseTree(int pid, const unordered_map<int, vector<int>>& treeMap,
+                        const unordered_map<int, Process>& procMap,
+                        vector<Process>& outList, string prefix, bool isLast) {
+    auto itProc = procMap.find(pid);
+    if (itProc == procMap.end()) return;
+
+    Process p = itProc->second;
+    p.tree_prefix = prefix;
+    p.is_tree_last_child = isLast;
+
+    auto itChildren = treeMap.find(pid);
+    if (itChildren != treeMap.end() && !itChildren->second.empty()) {
+        p.is_tree_leaf = false;
+        p.children_pids = itChildren->second;
+    } else {
+        p.is_tree_leaf = true;
+    }
+
+    outList.push_back(p);
+
+    if (itChildren != treeMap.end()) {
+        const auto& children = itChildren->second;
+        for (size_t i = 0; i < children.size(); ++i) {
+            bool childIsLast = (i == children.size() - 1);
+            string childPrefix = prefix;
+            if (!prefix.empty()) {
+                childPrefix += (isLast ? "    " : "│   ");
+            }
+            childPrefix += (childIsLast ? "└─ " : "├─ ");
+            recurseTree(children[i], treeMap, procMap, outList, childPrefix, childIsLast);
+        }
+    }
+}
+
+vector<Process> buildProcessTree(const vector<Process>& processes) {
+    unordered_map<int, Process> procMap;
+    unordered_map<int, vector<int>> treeMap;
+    set<int> allPids;
+
+    for (const auto& p : processes) {
+        procMap[p.pid] = p;
+        allPids.insert(p.pid);
+        treeMap[p.ppid].push_back(p.pid);
+    }
+
+    // Sort children by CPU% descending, then memory descending
+    for (auto& pair : treeMap) {
+        sort(pair.second.begin(), pair.second.end(), [&](int a, int b) {
+            auto itA = procMap.find(a);
+            auto itB = procMap.find(b);
+            if (itA != procMap.end() && itB != procMap.end()) {
+                if (std::abs(itA->second.cpu_usage - itB->second.cpu_usage) > 0.05) {
+                    return itA->second.cpu_usage > itB->second.cpu_usage;
+                }
+                return itA->second.res_bytes > itB->second.res_bytes;
+            }
+            return a < b;
+        });
+    }
+
+    vector<int> rootPids;
+    // Root processes are those whose parent is 0 or not found in active processes
+    for (const auto& p : processes) {
+        if (p.ppid == 0 || allPids.find(p.ppid) == allPids.end() || p.ppid == p.pid) {
+            rootPids.push_back(p.pid);
+        }
+    }
+
+    sort(rootPids.begin(), rootPids.end(), [&](int a, int b) {
+        auto itA = procMap.find(a);
+        auto itB = procMap.find(b);
+        if (itA != procMap.end() && itB != procMap.end()) {
+            if (std::abs(itA->second.cpu_usage - itB->second.cpu_usage) > 0.05) {
+                return itA->second.cpu_usage > itB->second.cpu_usage;
+            }
+            return itA->second.res_bytes > itB->second.res_bytes;
+        }
+        return a < b;
+    });
+
+    vector<Process> treeList;
+    treeList.reserve(processes.size());
+
+    for (size_t i = 0; i < rootPids.size(); ++i) {
+        bool isLast = (i == rootPids.size() - 1);
+        recurseTree(rootPids[i], treeMap, procMap, treeList, "", isLast);
+    }
+
+    return treeList;
 }

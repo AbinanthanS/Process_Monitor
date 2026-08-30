@@ -20,11 +20,18 @@ struct Process {
     double mem_usage = 0.0;
     uint64_t cpu_time_ticks = 0;
     uint64_t cpu_time_seconds = 0;
+    uint64_t utime_ticks = 0;
+    uint64_t stime_ticks = 0;
+    uint64_t start_time_seconds = 0;
     std::string name;
     std::string cmdline;
 
-    long prev_time = 0;
-    long curr_time = 0;
+    // Tree hierarchy metadata
+    int tree_depth = 0;
+    bool is_tree_leaf = true;
+    bool is_tree_last_child = false;
+    std::string tree_prefix;
+    std::vector<int> children_pids;
 };
 
 struct TaskCounts {
@@ -41,5 +48,6 @@ struct ProcessSnapshot {
 };
 
 ProcessSnapshot getProcessesSnapshot(long totalDelta, int numCores, uint64_t totalMemBytes);
+std::vector<Process> buildProcessTree(const std::vector<Process>& processes);
 
 #endif // PROCESS_H

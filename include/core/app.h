@@ -4,6 +4,7 @@
 #include "ui/terminal.h"
 #include "ui/render_buffer.h"
 #include "ui/graph.h"
+#include "ui/theme.h"
 #include "collectors/cpu.h"
 #include "collectors/memory.h"
 #include "collectors/process.h"
@@ -33,7 +34,9 @@ enum class ModalType {
     HELP,
     SORT_SELECT,
     KILL_CONFIRM,
-    MODULE_SELECT
+    MODULE_SELECT,
+    THEME_SELECT,
+    INSPECTOR
 };
 
 enum class LayoutPreset {
@@ -94,6 +97,7 @@ public:
 private:
     void collectorLoop();
     void processInput(const KeyEvent& evt);
+    void handleMouse(const MouseEvent& mouse);
     void render();
 
     LayoutBoxes computeLayout(int rows, int cols);
@@ -107,6 +111,7 @@ private:
     void renderProcPanel(RenderBuffer& buf, const Rect& rect, const std::vector<Process>& procs);
     void renderFooter(RenderBuffer& buf, const Rect& rect);
     void renderModals(RenderBuffer& buf);
+    void renderInspectorModal(RenderBuffer& buf);
 
     void applySortAndFilter(const std::vector<Process>& source, std::vector<Process>& dest);
     void sendSignalToSelected(int signalNum);
@@ -134,7 +139,8 @@ private:
     LayoutPreset currentPreset = LayoutPreset::FULL;
     int selectedNetInterfaceIdx = 0;
 
-    // UI state
+    // Process view state
+    bool treeMode = false;
     int selectedIndex = 0;
     int scrollOffset = 0;
     SortField currentSort = SortField::CPU;
@@ -145,6 +151,10 @@ private:
 
     ModalType activeModal = ModalType::NONE;
     int modalSelectedIndex = 0;
+
+    // Cached layout bounding boxes for mouse interaction
+    LayoutBoxes currentLayout;
+    std::vector<Process> lastRenderedProcs;
 
     std::string statusMessage;
     std::chrono::steady_clock::time_point statusMessageExpiry;

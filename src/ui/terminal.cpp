@@ -2,6 +2,8 @@
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
+#include <sstream>
+#include <algorithm>
 
 #if defined(_WIN32)
 #include <conio.h>
@@ -66,19 +68,20 @@ bool Terminal::init() {
     SetConsoleMode(hOut, outMode);
 
     DWORD inMode = origInMode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT);
-    inMode |= ENABLE_VIRTUAL_TERMINAL_INPUT;
+    inMode |= ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_MOUSE_INPUT;
     SetConsoleMode(hIn, inMode);
 
     SetConsoleCtrlHandler(consoleCtrlHandler, TRUE);
 
     rawModeActive = true;
-    std::cout << "\033[?1049h\033[?25l" << std::flush;
+    // Enter alternate screen, hide cursor, enable SGR mouse tracking
+    std::cout << "\033[?1049h\033[?25l\033[?1000h\033[?1006h" << std::flush;
     return true;
 }
 
 void Terminal::cleanup() {
     if (rawModeActive) {
-        std::cout << "\033[?25h\033[?1049l" << std::flush;
+        std::cout << "\033[?1006l\033[?1000l\033[?25h\033[?1049l" << std::flush;
         HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
         HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
         SetConsoleMode(hIn, origInMode);
@@ -99,7 +102,7 @@ TermSize Terminal::getSize() const {
 }
 
 KeyEvent Terminal::readKey(int timeoutMs) {
-    KeyEvent evt{KeyCode::NONE, 0};
+    KeyEvent evt{KeyCode::NONE, 0, {}};
     int waited = 0;
     while (!_kbhit() && waited < timeoutMs) {
         Sleep(10);
@@ -185,13 +188,14 @@ bool Terminal::init() {
     }
 
     rawModeActive = true;
-    std::cout << "\033[?1049h\033[?25l" << std::flush;
+    // Enter alternate screen, hide cursor, enable SGR 1006 mouse tracking
+    std::cout << "\033[?1049h\033[?25l\033[?1000h\033[?1006h" << std::flush;
     return true;
 }
 
 void Terminal::cleanup() {
     if (rawModeActive) {
-        std::cout << "\033[?25h\033[?1049l" << std::flush;
+        std::cout << "\033[?1006l\033[?1000l\033[?25h\033[?1049l" << std::flush;
         tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
         rawModeActive = false;
     }
@@ -208,7 +212,7 @@ TermSize Terminal::getSize() const {
 }
 
 KeyEvent Terminal::readKey(int timeoutMs) {
-    KeyEvent evt{KeyCode::NONE, 0};
+    KeyEvent evt{KeyCode::NONE, 0, {}};
 
     fd_set fds;
     FD_ZERO(&fds);
@@ -229,7 +233,7 @@ KeyEvent Terminal::readKey(int timeoutMs) {
     }
 
     if (c == 27) {
-        char seq[6] = {0};
+        char seq[32] = {0};
         struct timeval tvFast{0, 20000};
         fd_set fastFds;
         FD_ZERO(&fastFds);
@@ -239,7 +243,39 @@ KeyEvent Terminal::readKey(int timeoutMs) {
             if (read(STDIN_FILENO, &seq[0], 1) > 0) {
                 if (seq[0] == '[') {
                     if (read(STDIN_FILENO, &seq[1], 1) > 0) {
-                        if (seq[1] >= '0' && seq[1] <= '9') {
+                        // SGR Mouse sequence: \033[<btn;x;y;M or m
+                        if (seq[1] == '<') {
+                            std::string mouseData;
+                            char mch = 0;
+                            while (read(STDIN_FILENO, &mch, 1) > 0) {
+                                mouseData.push_back(mch);
+                                if (mch == 'M' || mch == 'm') break;
+                                if (mouseData.length() > 24) break;
+                            }
+
+                            if (!mouseData.empty() && (mouseData.back() == 'M' || mouseData.back() == 'm')) {
+                                char releaseChar = mouseData.back();
+                                mouseData.pop_back();
+                                std::replace(mouseData.begin(), mouseData.end(), ';', ' ');
+                                std::istringstream mss(mouseData);
+                                int btn = 0, mx = 0, my = 0;
+                                if (mss >> btn >> mx >> my) {
+                                    evt.code = KeyCode::MOUSE_EVT;
+                                    evt.mouse.x = mx;
+                                    evt.mouse.y = my;
+                                    if (btn == 64) {
+                                        evt.mouse.action = MouseAction::SCROLL_UP;
+                                    } else if (btn == 65) {
+                                        evt.mouse.action = MouseAction::SCROLL_DOWN;
+                                    } else if (btn == 0 && releaseChar == 'M') {
+                                        evt.mouse.action = MouseAction::LEFT_CLICK;
+                                    } else if (btn == 2 && releaseChar == 'M') {
+                                        evt.mouse.action = MouseAction::RIGHT_CLICK;
+                                    }
+                                    return evt;
+                                }
+                            }
+                        } else if (seq[1] >= '0' && seq[1] <= '9') {
                             if (read(STDIN_FILENO, &seq[2], 1) > 0) {
                                 if (seq[2] == '~') {
                                     switch (seq[1]) {
