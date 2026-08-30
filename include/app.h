@@ -6,11 +6,16 @@
 #include "cpu.h"
 #include "memory.h"
 #include "process.h"
+#include "graph.h"
+#include "disk.h"
+#include "net.h"
+#include "sensors.h"
 #include <vector>
 #include <string>
 #include <mutex>
 #include <thread>
 #include <atomic>
+#include <chrono>
 
 enum class SortField {
     CPU,
@@ -36,6 +41,9 @@ struct AppData {
     double totalCpuUsage = 0.0;
     MemoryInfo memInfo;
     ProcessSnapshot snapshot;
+    SystemDiskInfo diskInfo;
+    SystemNetInfo netInfo;
+    SensorInfo sensorInfo;
 };
 
 class App {
@@ -65,6 +73,9 @@ private:
     std::thread collectorThread;
     std::mutex dataMutex;
     AppData appData;
+
+    SparklineGraph cpuGraph{60};
+    SparklineGraph memGraph{60};
 
     // UI state
     int selectedIndex = 0;

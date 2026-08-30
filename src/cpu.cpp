@@ -31,13 +31,11 @@ double calculateCPUUsage(const CPUStats& prev, const CPUStats& curr) {
 SystemCPUInfo readSystemCPU() {
     SystemCPUInfo info{};
 
-    // 1. Read /proc/stat for total and per-core CPU times
     ifstream statFile("/proc/stat");
     if (statFile.is_open()) {
         string line;
         while (getline(statFile, line)) {
             if (line.rfind("cpu", 0) != 0) {
-                // Done reading CPU lines
                 break;
             }
 
@@ -61,13 +59,11 @@ SystemCPUInfo readSystemCPU() {
         }
     }
 
-    // 2. Read /proc/loadavg
     ifstream loadFile("/proc/loadavg");
     if (loadFile.is_open()) {
         loadFile >> info.load1 >> info.load5 >> info.load15;
     }
 
-    // 3. Read /proc/uptime
     ifstream uptimeFile("/proc/uptime");
     if (uptimeFile.is_open()) {
         double uptimeSec = 0.0;

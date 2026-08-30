@@ -14,7 +14,6 @@ MemoryInfo getMemoryInfo() {
     uint64_t sReclaimable = 0;
 
     while (file >> key >> value >> unit) {
-        // Values in /proc/meminfo are in kB, multiply by 1024 to get bytes
         uint64_t bytes = value * 1024ULL;
 
         if (key == "MemTotal:") {
@@ -40,7 +39,6 @@ MemoryInfo getMemoryInfo() {
         if (info.availableBytes > 0) {
             info.usedBytes = (info.totalBytes >= info.availableBytes) ? (info.totalBytes - info.availableBytes) : 0;
         } else {
-            // Fallback for older kernels: total - free - buffers - cached
             uint64_t freeAndCache = info.freeBytes + info.buffersBytes + info.cachedBytes + sReclaimable;
             info.usedBytes = (info.totalBytes >= freeAndCache) ? (info.totalBytes - freeAndCache) : 0;
         }

@@ -29,12 +29,21 @@ void App::setStatus(const string& msg, int durationSeconds) {
 
 void App::collectorLoop() {
     SystemCPUInfo prevCpu = readSystemCPU();
-    this_thread::sleep_for(chrono::milliseconds(200));
+    auto prevTime = chrono::steady_clock::now();
+    this_thread::sleep_for(chrono::milliseconds(300));
 
     while (running.load()) {
         if (!paused.load()) {
+            auto currTime = chrono::steady_clock::now();
+            double deltaSec = chrono::duration<double>(currTime - prevTime).count();
+            if (deltaSec <= 0.0) deltaSec = 1.0;
+            prevTime = currTime;
+
             SystemCPUInfo currCpu = readSystemCPU();
             MemoryInfo mem = getMemoryInfo();
+            SystemDiskInfo disk = readDiskStats(deltaSec);
+            SystemNetInfo net = readNetStats(deltaSec);
+            SensorInfo sensors = readSensors();
 
             long totalDelta = getTotalCPUTime(currCpu.total) - getTotalCPUTime(prevCpu.total);
             double totalCpuPercent = calculateCPUUsage(prevCpu.total, currCpu.total);
@@ -55,12 +64,17 @@ void App::collectorLoop() {
                 appData.coreUsages = corePercents;
                 appData.memInfo = mem;
                 appData.snapshot = std::move(snap);
+                appData.diskInfo = disk;
+                appData.netInfo = net;
+                appData.sensorInfo = sensors;
+
+                cpuGraph.addSample(totalCpuPercent);
+                memGraph.addSample(mem.memUsagePercent);
             }
 
             prevCpu = currCpu;
         }
 
-        // Sleep in small increments for responsive shutdown
         for (int i = 0; i < 10 && running.load(); ++i) {
             this_thread::sleep_for(chrono::milliseconds(100));
         }
@@ -73,7 +87,7 @@ void App::run() {
             Terminal::clearResized();
         }
 
-        KeyEvent evt = term.readKey(40); // 25 FPS loop
+        KeyEvent evt = term.readKey(40);
         if (evt.code != KeyCode::NONE) {
             processInput(evt);
         }
@@ -98,7 +112,6 @@ void App::sendSignalToSelected(int signalNum) {
 }
 
 void App::processInput(const KeyEvent& evt) {
-    // 1. Search Mode Input
     if (searchMode) {
         if (evt.code == KeyCode::ESCAPE) {
             searchMode = false;
@@ -121,7 +134,6 @@ void App::processInput(const KeyEvent& evt) {
         return;
     }
 
-    // 2. Modal Dialog Input
     if (activeModal != ModalType::NONE) {
         if (evt.code == KeyCode::ESCAPE || (evt.code == KeyCode::CHAR && evt.ch == 'q')) {
             activeModal = ModalType::NONE;
@@ -158,7 +170,6 @@ void App::processInput(const KeyEvent& evt) {
         }
     }
 
-    // 3. Normal Navigation & Shortcuts
     switch (evt.code) {
         case KeyCode::CHAR:
             if (evt.ch == 'q' || evt.ch == 'Q') {
@@ -202,7 +213,7 @@ void App::processInput(const KeyEvent& evt) {
                 selectedIndex = 0;
                 scrollOffset = 0;
             } else if (evt.ch == 'G') {
-                selectedIndex = 999999; // Clamped in render
+                selectedIndex = 999999;
             }
             break;
 
@@ -350,15 +361,20 @@ void App::render() {
     buf.clear();
 
     AppData dataCopy;
+    string cpuSparkline;
+    string memSparkline;
+
     {
         lock_guard<mutex> lock(dataMutex);
         dataCopy = appData;
+        size_t graphWidth = static_cast<size_t>(max(10, size.cols / 4 - 4));
+        cpuSparkline = cpuGraph.renderBrailleLine(graphWidth, 0.0, 100.0, Color::FG_BRIGHT_CYAN);
+        memSparkline = memGraph.renderBrailleLine(graphWidth, 0.0, 100.0, Color::FG_BRIGHT_MAGENTA);
     }
 
     vector<Process> visibleProcs;
     applySortAndFilter(dataCopy.snapshot.processes, visibleProcs);
 
-    // Adjust selected index and scroll offset
     if (visibleProcs.empty()) {
         selectedIndex = 0;
         scrollOffset = 0;
@@ -377,7 +393,6 @@ void App::render() {
     int availableRows = size.rows - tableStartRow - footerHeight;
 
     if (availableRows > 0) {
-        // Adjust scroll window
         if (selectedIndex < scrollOffset) {
             scrollOffset = selectedIndex;
         } else if (selectedIndex >= scrollOffset + availableRows) {
@@ -386,7 +401,6 @@ void App::render() {
         drawProcessTable(buf, visibleProcs, tableStartRow, availableRows);
     }
 
-    // Status or search bar
     int footerRow = size.rows;
     if (searchMode || !searchQuery.empty()) {
         string searchStyle = Color::BG_BRIGHT_BLACK + Color::FG_BRIGHT_WHITE;
@@ -440,7 +454,7 @@ void App::drawHeader(RenderBuffer& buf, const AppData& data, int& curRow) {
 
         curRow = max(leftRow, rightRow);
 
-        // Memory and Swap Meters
+        // Memory & Swap Gauges
         string memLabel = "Mem [" + RenderBuffer::formatBytes(data.memInfo.usedBytes) + "/" +
                           RenderBuffer::formatBytes(data.memInfo.totalBytes) + "]";
         buf.drawProgressBar(curRow, leftCol, colWidth, data.memInfo.memUsagePercent, memLabel,
@@ -451,6 +465,27 @@ void App::drawHeader(RenderBuffer& buf, const AppData& data, int& curRow) {
         buf.drawProgressBar(curRow, rightCol, colWidth, data.memInfo.swapUsagePercent, swapLabel,
                             Color::FG_BRIGHT_RED, Color::FG_BRIGHT_YELLOW, Color::FG_GREEN);
         curRow++;
+
+        // Sparkline & I/O Dashboard Line
+        size_t graphWidth = static_cast<size_t>(max(10, colWidth / 2 - 8));
+        string cpuSpark = cpuGraph.renderBrailleLine(graphWidth, 0.0, 100.0, Color::FG_BRIGHT_CYAN);
+        string memSpark = memGraph.renderBrailleLine(graphWidth, 0.0, 100.0, Color::FG_BRIGHT_MAGENTA);
+
+        ostringstream leftInfo;
+        leftInfo << Color::BOLD << "CPU Trend: " << Color::RESET << cpuSpark
+                 << "  " << Color::FG_YELLOW << Color::BOLD << "Disk R/W: " << Color::RESET
+                 << RenderBuffer::formatRate(data.diskInfo.totalReadBytesSec) << " / "
+                 << RenderBuffer::formatRate(data.diskInfo.totalWriteBytesSec);
+
+        ostringstream rightInfo;
+        rightInfo << Color::BOLD << "Mem Trend: " << Color::RESET << memSpark
+                  << "  " << Color::FG_GREEN << Color::BOLD << "Net RX/TX: " << Color::RESET
+                  << RenderBuffer::formatRate(data.netInfo.totalRxBytesSec) << " / "
+                  << RenderBuffer::formatRate(data.netInfo.totalTxBytesSec);
+
+        buf.writeText(curRow, leftCol, leftInfo.str());
+        buf.writeText(curRow++, rightCol, rightInfo.str());
+
     } else {
         int colWidth = cols - 2;
         buf.drawProgressBar(curRow++, 1, colWidth, data.totalCpuUsage, "CPU Avg");
@@ -462,7 +497,7 @@ void App::drawHeader(RenderBuffer& buf, const AppData& data, int& curRow) {
         buf.drawProgressBar(curRow++, 1, colWidth, data.memInfo.swapUsagePercent, swapLabel);
     }
 
-    // System summary line: Tasks, Load Average, Uptime
+    // System summary line: Tasks, Load Average, Temp, Uptime
     ostringstream sumSS;
     sumSS << Color::FG_CYAN << Color::BOLD << "Tasks: " << Color::RESET
           << data.snapshot.taskCounts.total << " total, "
@@ -470,8 +505,15 @@ void App::drawHeader(RenderBuffer& buf, const AppData& data, int& curRow) {
           << data.snapshot.taskCounts.sleeping << " sleeping, "
           << Color::FG_RED << data.snapshot.taskCounts.zombie << " zombie" << Color::RESET << "  |  "
           << Color::FG_YELLOW << Color::BOLD << "Load: " << Color::RESET
-          << fixed << setprecision(2) << data.cpuInfo.load1 << " " << data.cpuInfo.load5 << " " << data.cpuInfo.load15 << "  |  "
-          << Color::FG_MAGENTA << Color::BOLD << "Uptime: " << Color::RESET
+          << fixed << setprecision(2) << data.cpuInfo.load1 << " " << data.cpuInfo.load5 << " " << data.cpuInfo.load15;
+
+    if (data.sensorInfo.isAvailable && data.sensorInfo.cpuTempC > 0) {
+        string tempColor = (data.sensorInfo.cpuTempC > 80.0) ? Color::FG_BRIGHT_RED :
+                           ((data.sensorInfo.cpuTempC > 65.0) ? Color::FG_BRIGHT_YELLOW : Color::FG_BRIGHT_GREEN);
+        sumSS << "  |  " << Color::BOLD << "Temp: " << tempColor << fixed << setprecision(1) << data.sensorInfo.cpuTempC << "°C" << Color::RESET;
+    }
+
+    sumSS << "  |  " << Color::FG_MAGENTA << Color::BOLD << "Uptime: " << Color::RESET
           << RenderBuffer::formatTime(data.cpuInfo.uptimeSeconds);
 
     buf.writeText(curRow++, 1, sumSS.str());
@@ -481,7 +523,6 @@ void App::drawProcessTable(RenderBuffer& buf, const vector<Process>& procs, int 
     int cols = buf.getCols();
     string sortArrow = sortAscending ? "▲" : "▼";
 
-    // Table Header formatting
     ostringstream hdr;
     hdr << Color::BG_CYAN << Color::FG_BLACK << Color::BOLD;
 
@@ -523,7 +564,7 @@ void App::drawProcessTable(RenderBuffer& buf, const vector<Process>& procs, int 
         if (isSelected) {
             rowStyle = Color::BG_BRIGHT_BLUE + Color::FG_BRIGHT_WHITE + Color::BOLD;
         } else if (i % 2 == 1) {
-            rowStyle = Color::rgb(20, 24, 32, true); // Subtle alternating row background
+            rowStyle = Color::rgb(20, 24, 32, true);
         }
 
         buf.fillRow(printRow, ' ', rowStyle);
@@ -538,7 +579,6 @@ void App::drawProcessTable(RenderBuffer& buf, const vector<Process>& procs, int 
               << RenderBuffer::truncateOrPad(RenderBuffer::formatBytes(p.shr_bytes), 8, true)
               << p.state << " ";
 
-        // CPU% with color highlight
         ostringstream cpuSS;
         cpuSS << fixed << setprecision(1) << p.cpu_usage;
         string cpuStr = RenderBuffer::truncateOrPad(cpuSS.str(), 7, true);
@@ -552,15 +592,12 @@ void App::drawProcessTable(RenderBuffer& buf, const vector<Process>& procs, int 
             rowSS << cpuStr;
         }
 
-        // MEM%
         ostringstream memSS;
         memSS << fixed << setprecision(1) << p.mem_usage;
         rowSS << RenderBuffer::truncateOrPad(memSS.str(), 7, true);
 
-        // TIME+
         rowSS << RenderBuffer::truncateOrPad(RenderBuffer::formatTime(p.cpu_time_seconds), 10, true);
 
-        // Command line
         int usedCols = 7 + 10 + 5 + 4 + 8 + 8 + 8 + 2 + 7 + 7 + 10;
         int remainingCols = cols - usedCols;
         if (remainingCols > 0) {

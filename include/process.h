@@ -7,6 +7,7 @@
 
 struct Process {
     int pid = 0;
+    int ppid = 0;
     std::string user = "root";
     int priority = 20;
     int nice = 0;
@@ -21,7 +22,6 @@ struct Process {
     std::string name;
     std::string cmdline;
 
-    // Internal tracking for delta computation
     long prev_time = 0;
     long curr_time = 0;
 };

@@ -25,7 +25,6 @@ void Terminal::handleResize(int /*sig*/) {
 
 void Terminal::handleSignal(int /*sig*/) {
     exitRequested.store(true);
-    // Cleanup will be invoked
     Terminal::instance().cleanup();
     _exit(0);
 }
@@ -61,15 +60,10 @@ bool Terminal::init() {
     sigaction(SIGTERM, &saSig, nullptr);
 
     termios raw = orig_termios;
-    // Input modes: no break, no CR to NL, no parity check, no strip char, no start/stop output control
     raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-    // Output modes: disable post processing
     raw.c_oflag &= ~(OPOST);
-    // Control modes: set 8 bit chars
     raw.c_cflag |= (CS8);
-    // Local modes: echo off, canonical off, no extended input processing, no signal chars
     raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
-    // Control characters: min bytes to read = 0, timeout = 0
     raw.c_cc[VMIN] = 0;
     raw.c_cc[VTIME] = 0;
 
@@ -78,15 +72,12 @@ bool Terminal::init() {
     }
 
     rawModeActive = true;
-
-    // Enter alternate screen buffer & hide cursor
     std::cout << "\033[?1049h\033[?25l" << std::flush;
     return true;
 }
 
 void Terminal::cleanup() {
     if (rawModeActive) {
-        // Exit alternate screen buffer & show cursor
         std::cout << "\033[?25h\033[?1049l" << std::flush;
         tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
         rawModeActive = false;
@@ -124,10 +115,9 @@ KeyEvent Terminal::readKey(int timeoutMs) {
         return evt;
     }
 
-    if (c == 27) { // Escape sequence
+    if (c == 27) {
         char seq[6] = {0};
-        // Check if more characters follow immediately
-        struct timeval tvFast{0, 20000}; // 20ms timeout for escape sub-sequence
+        struct timeval tvFast{0, 20000};
         fd_set fastFds;
         FD_ZERO(&fastFds);
         FD_SET(STDIN_FILENO, &fastFds);
@@ -141,7 +131,6 @@ KeyEvent Terminal::readKey(int timeoutMs) {
                                 if (seq[2] == '~') {
                                     switch (seq[1]) {
                                         case '1': evt.code = KeyCode::HOME; return evt;
-                                        case '2': evt.code = KeyCode::NONE; return evt; // Insert
                                         case '3': evt.code = KeyCode::DELETE_KEY; return evt;
                                         case '4': evt.code = KeyCode::END; return evt;
                                         case '5': evt.code = KeyCode::PAGE_UP; return evt;

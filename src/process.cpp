@@ -93,7 +93,6 @@ ProcessSnapshot getProcessesSnapshot(long totalDelta, int numCores, uint64_t tot
         string statLine;
         if (!getline(statFile, statLine)) continue;
 
-        // The comm field is enclosed in parentheses, e.g. "123 (my process) S ..."
         auto openParen = statLine.find('(');
         auto closeParen = statLine.rfind(')');
         if (openParen == string::npos || closeParen == string::npos || closeParen < openParen) {
@@ -121,7 +120,6 @@ ProcessSnapshot getProcessesSnapshot(long totalDelta, int numCores, uint64_t tot
                >> priority >> nice >> num_threads >> itrealvalue >> starttime
                >> vsize >> rss;
 
-        // Update task counts
         snapshot.taskCounts.total++;
         switch (state) {
             case 'R': snapshot.taskCounts.running++; break;
@@ -134,7 +132,7 @@ ProcessSnapshot getProcessesSnapshot(long totalDelta, int numCores, uint64_t tot
             default: snapshot.taskCounts.sleeping++; break;
         }
 
-        // 2. Read /proc/[pid]/statm for memory details
+        // 2. Read /proc/[pid]/statm
         string statmPath = "/proc/" + dirName + "/statm";
         ifstream statmFile(statmPath);
         uint64_t sizePages = 0, residentPages = 0, sharedPages = 0;
@@ -151,7 +149,6 @@ ProcessSnapshot getProcessesSnapshot(long totalDelta, int numCores, uint64_t tot
         string cmdline;
         if (cmdlineFile.is_open()) {
             getline(cmdlineFile, cmdline);
-            // Replace null bytes with space
             for (char& ch : cmdline) {
                 if (ch == '\0') ch = ' ';
             }
@@ -171,6 +168,7 @@ ProcessSnapshot getProcessesSnapshot(long totalDelta, int numCores, uint64_t tot
 
         Process proc;
         proc.pid = pid;
+        proc.ppid = ppid;
         proc.user = username;
         proc.priority = static_cast<int>(priority);
         proc.nice = static_cast<int>(nice);
@@ -203,7 +201,6 @@ ProcessSnapshot getProcessesSnapshot(long totalDelta, int numCores, uint64_t tot
 
     closedir(dir);
 
-    // Clean up dead processes from tracking map
     for (auto it = prevProcessTimes.begin(); it != prevProcessTimes.end();) {
         if (currentPids.find(it->first) == currentPids.end()) {
             it = prevProcessTimes.erase(it);

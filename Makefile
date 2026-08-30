@@ -1,7 +1,8 @@
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -pthread
+CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -pthread -Iinclude
 TARGET = monitor
-SRCS = terminal.cpp render_buffer.cpp cpu.cpp memory.cpp process.cpp app.cpp main.cpp
+SRCDIR = src
+SRCS = $(wildcard $(SRCDIR)/*.cpp)
 OBJS = $(SRCS:.cpp=.o)
 
 all: $(TARGET)
@@ -13,6 +14,6 @@ $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -f $(SRCDIR)/*.o $(TARGET)
 
 .PHONY: all clean

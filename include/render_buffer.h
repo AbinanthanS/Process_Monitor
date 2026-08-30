@@ -57,7 +57,7 @@ public:
 
     void writeText(int row, int col, const std::string& text, const std::string& style = "");
     void fillRow(int row, char ch = ' ', const std::string& style = "");
-    void drawProgressBar(int row, int col, int width, double percentage, 
+    void drawProgressBar(int row, int col, int totalWidth, double percentage, 
                          const std::string& label = "", 
                          const std::string& highColor = Color::FG_BRIGHT_RED,
                          const std::string& midColor = Color::FG_BRIGHT_YELLOW,
@@ -68,6 +68,7 @@ public:
     void flush();
 
     static std::string formatBytes(uint64_t bytes);
+    static std::string formatRate(uint64_t bytesPerSec);
     static std::string formatTime(uint64_t totalSeconds);
     static std::string truncateOrPad(const std::string& str, size_t width, bool padRight = true);
 

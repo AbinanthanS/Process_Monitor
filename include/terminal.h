@@ -29,7 +29,7 @@ enum class KeyCode {
 
 struct KeyEvent {
     KeyCode code = KeyCode::NONE;
-    char ch = 0; // set if code == KeyCode::CHAR
+    char ch = 0;
 };
 
 struct TermSize {

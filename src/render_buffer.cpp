@@ -25,7 +25,6 @@ void RenderBuffer::resize(int r, int c) {
 
 void RenderBuffer::clear() {
     buffer.clear();
-    // Move cursor to home position
     buffer += "\033[H";
 }
 
@@ -57,10 +56,9 @@ void RenderBuffer::drawProgressBar(int row, int col, int totalWidth, double perc
 
     std::ostringstream pss;
     pss << std::fixed << std::setprecision(1) << std::setw(5) << percentage << "%";
-    std::string pctStr = pss.str(); // e.g. " 45.2%" or "100.0%"
+    std::string pctStr = pss.str();
 
     int labelLen = static_cast<int>(label.length());
-    // Overhead = (label + space) + '[' + ']' + (space + pctStr)
     int overhead = (labelLen > 0 ? labelLen + 1 : 0) + 2 + 1 + static_cast<int>(pctStr.length());
     int innerBarWidth = totalWidth - overhead;
     if (innerBarWidth < 2) innerBarWidth = 2;
@@ -95,7 +93,6 @@ void RenderBuffer::drawProgressBar(int row, int col, int totalWidth, double perc
 void RenderBuffer::drawBox(int row, int col, int height, int width, const std::string& title, const std::string& style) {
     if (row < 1 || col < 1 || height < 2 || width < 2) return;
 
-    // Top border
     std::string top = "┌";
     int innerWidth = width - 2;
     if (!title.empty() && title.length() + 2 <= static_cast<size_t>(innerWidth)) {
@@ -108,13 +105,11 @@ void RenderBuffer::drawBox(int row, int col, int height, int width, const std::s
     top += "┐";
     writeText(row, col, top, style);
 
-    // Sides
     for (int r = row + 1; r < row + height - 1; ++r) {
         writeText(r, col, "│", style);
         writeText(r, col + width - 1, "│", style);
     }
 
-    // Bottom border
     std::string bottom = "└";
     for (int i = 0; i < innerWidth; ++i) bottom += "─";
     bottom += "┘";
@@ -138,6 +133,23 @@ std::string RenderBuffer::formatBytes(uint64_t bytes) {
         ss << static_cast<uint64_t>(dBytes) << units[idx];
     } else {
         ss << std::fixed << std::setprecision(1) << dBytes << units[idx];
+    }
+    return ss.str();
+}
+
+std::string RenderBuffer::formatRate(uint64_t bytesPerSec) {
+    const char* units[] = {"B/s", "KB/s", "MB/s", "GB/s", "TB/s"};
+    int idx = 0;
+    double dRate = static_cast<double>(bytesPerSec);
+    while (dRate >= 1024.0 && idx < 4) {
+        dRate /= 1024.0;
+        idx++;
+    }
+    std::ostringstream ss;
+    if (idx == 0) {
+        ss << static_cast<uint64_t>(dRate) << " " << units[idx];
+    } else {
+        ss << std::fixed << std::setprecision(1) << dRate << " " << units[idx];
     }
     return ss.str();
 }
